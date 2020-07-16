@@ -84,7 +84,7 @@ Instance Monad_parser : Monad parser :=
       bind (m s) (fun '(a, s') => k a s')
   }.
 
-Instance MonadLaws_parser : MonadLaws Monad_parser.
+Instance MonadLaws_parser : MonadLaws parser.
 Proof.
   constructor.
 
@@ -135,7 +135,7 @@ Instance Monad_printer : Monad printer :=
       Some (s ++ s', b)));
   }.
 
-Instance MonadLaws_printer : MonadLaws Monad_printer.
+Instance MonadLaws_printer : MonadLaws printer.
 Proof.
   constructor.
 
@@ -257,9 +257,14 @@ Lemma weak_backward_comap U U' A (f : U -> option U')
   weak_backward (comap f m).
 Proof.
   intros u b s s' e.
-  simpl in *.
+  cbn in *.
   destruct (f u) eqn:ef; try discriminate.
-  eauto.
+  destruct snd as [[] | ] eqn:E.
+  - cbn in e. rewrite app_nil_r in e. injection e. intros ? ?; subst. clear e.
+    eapply Hm in E.
+    rewrite E.
+    eauto.
+  - discriminate.
 Qed.
 
 Lemma weak_backward_bind U A B
@@ -313,9 +318,14 @@ Lemma weak_forward_comap U U' A (f : U -> option U')
   weak_forward (comap f m).
 Proof.
   intros u b s s' s'' e e'.
-  simpl in *.
+  cbn in *.
   destruct (f u) eqn:ef; try discriminate.
-  eauto.
+  destruct fst as [[]|] eqn:E1; try discriminate.
+  destruct snd as [[]|] eqn:E2; try discriminate.
+  cbn in *.
+  injection e; injection e'; intros; subst; clear e e'.
+  rewrite app_nil_r.
+  eapply Hm; eassumption.
 Qed.
 
 Lemma weak_forward_bind U A B
