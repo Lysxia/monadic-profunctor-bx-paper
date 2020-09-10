@@ -123,6 +123,13 @@ Definition map_opt {M : Type -> Type}
            (f : A -> option B) (m : M A) :=
   x <- m;; ret_opt (f x).
 
+Lemma map_empty {M} `{MonadPartialLaws M} {A B} (f : A -> B)
+  : map f empty = empty.
+Proof.
+  unfold map.
+  apply partial_left_zero.
+Qed.
+
 (** Example: the [option] monad **)
 
 Definition bind_option {A B} (m : option A) (k : A -> option B) :=
@@ -406,7 +413,21 @@ Instance Promonad_Bwd (M : Type -> Type) `{MonadPartial M} :
 
 Instance PartialProfunctorLaws_Bwd M `{MonadPartialLaws M} :
   PartialProfunctorLaws (Bwd M).
-Admitted.
+Proof.
+  constructor.
+  - constructor.
+    + intros; cbn; unfold Profunctor_Bwd.
+      rewrite map_id.
+      reflexivity.
+    + intros; cbn; unfold Profunctor_Bwd, compose.
+      change (map ?f (map ?g ?x)) with (compose (map f) (map g) x).
+      rewrite map_map.
+      reflexivity.
+  - intros; cbn; unfold Profunctor_Bwd.
+    apply functional_extensionality; intros [ x | ]; cbn.
+    + reflexivity.
+    + rewrite map_empty; reflexivity.
+Qed.
 
 Instance PromonadLaws_Bwd (M : Type -> Type) `{MonadPartialLaws M} :
   PromonadLaws (Bwd M).
@@ -484,7 +505,20 @@ Proof. auto. Qed.
 Instance PartialProfunctorLaws_Product P1 P2
          `{PartialProfunctorLaws P1, PartialProfunctorLaws P2} :
   PartialProfunctorLaws (Product P1 P2).
-Admitted.
+Proof.
+  constructor.
+  - constructor.
+    + intros; cbn; unfold Profunctor_Product.
+      rewrite 2 dimap_id.
+      apply functional_extensionality; intros []; reflexivity.
+    + intros; cbn; unfold Profunctor_Product.
+      unfold compose; cbn.
+      change (dimap ?f1 ?g1 (dimap ?f2 ?g2 ?x)) with (compose (dimap f1 g1) (dimap f2 g2) x).
+      rewrite 2 dimap_compose.
+      reflexivity.
+  - intros; cbn; unfold Profunctor_Product.
+    f_equal; rewrite toFailureP_dimap; reflexivity.
+Qed.
 
 Instance LawfulPromonad_Product P1 P2
          `{PromonadLaws P1, PromonadLaws P2} :
