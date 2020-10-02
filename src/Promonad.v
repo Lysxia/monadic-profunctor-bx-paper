@@ -612,6 +612,12 @@ Class Quasicompositional
         R V A m -> R U A (comap f m)
   }.
 
+Instance Quasicompositional_Compositional {P} (R : forall A B, P A B -> Prop) `{Compositional P R}
+  : Quasicompositional R.
+Proof.
+  destruct H0; constructor; auto.
+Qed.
+
 (* replicate preserves quasicompositional properties *)
 Lemma replicate_comp P
       (R : forall U A, P U A -> Prop)

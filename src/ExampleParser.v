@@ -446,7 +446,7 @@ Qed.
 
 Lemma weak_forward_digit {b} : weak_forward (biparse_digit b).
 Proof.
-  unfold biparse_digit.
+  unfold biparse_digit, weak_forward.
 Abort.
 
 Lemma weak_backward_digit {b} : weak_backward (biparse_digit b).
@@ -459,3 +459,31 @@ Proof.
     + apply weak_backward_empty.
     + apply weak_backward_ret.
 Qed.
+
+Lemma weak_backward_replicate {A} {n} {p : biparser A A}
+  : weak_backward p ->
+    weak_backward (replicate n p).
+Proof.
+  apply replicate_comp; typeclasses eauto.
+Qed.
+
+Lemma weak_forward_replicate {A} {n} {p : biparser A A}
+  : weak_forward p ->
+    weak_forward (replicate n p).
+Proof.
+  apply replicate_comp; typeclasses eauto.
+Qed.
+
+Lemma weak_forward_nat b k : weak_forward (biparse_nat b k).
+Proof.
+Admitted.
+
+Theorem weak_forward_string
+  : weak_forward biparse_string.
+Proof.
+  unfold biparse_string.
+  eapply bind_comp'.
+  2:{ apply comap_comp'. apply weak_forward_nat. }
+  2:{ intros a; apply weak_forward_replicate. apply weak_forward_token. }
+  { admit. }
+Admitted.
