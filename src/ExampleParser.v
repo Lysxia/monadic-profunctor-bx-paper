@@ -232,8 +232,19 @@ Definition right_round_trip A (pa : parser2 A A) (pr : printer2 A A)
 
 Definition biparser : Type -> Type -> Type := Product parser2 printer2.
 
+Definition backward {A} (p : biparser A A) : Prop :=
+  forall (a : A) (s s' : list t),
+    (exists a', snd p a = Some (s, a')) ->
+    fst p (s ++ s') = Some (a, s').
+
+Definition forward {A} (p : biparser A A) : Prop :=
+  forall (a : A) (s01 s1 s0 : list t),
+    fst p s01 = Some (a, s1) ->
+    (exists a', snd p a = Some (s0, a')) ->
+    s01 = s0 ++ s1.
+
 Definition purify {U V} (p : biparser U V) : pfunction U V :=
-  fun a => bind_option (snd p a) (fun x => Some (snd x)).
+  fun a => option_map snd (snd p a).
 
 Definition weak_backward {U A} (p : biparser U A) : Prop :=
   forall (u : U) (a : A) (s s' : list t),
@@ -245,6 +256,52 @@ Definition weak_forward {U A} (p : biparser U A) : Prop :=
     fst p s01 = Some (a, s1) ->
     snd p u = Some (s0, a) ->
     s01 = s0 ++ s1.
+
+Definition aligned {A} (p : biparser A A) : Prop :=
+  forall (a : A),
+    exists s0, snd p a = Some (s0, a).
+
+Definition aligned_ {U A} (f : U -> A) (p : biparser U A) : Prop :=
+  forall (u : U),
+    (exists s0, snd p u = Some (s0, f u)).
+
+Definition aligned' {A} (p : pfunction A A) : Prop :=
+  forall (a : A), p a = Some a.
+
+Definition aligned_equiv {A} (p : biparser A A)
+  : aligned p <-> aligned' (purify p).
+Proof.
+  split; intros H a; unfold aligned, aligned', purify in *.
+  - destruct (H a) as [s E].
+    rewrite E; reflexivity.
+  - specialize (H a).
+    destruct (snd p a) as [ [] | ]; cbn in H; try discriminate.
+    injection H; intros []; eauto.
+Qed.
+
+Theorem backward_aligned {A} (p : biparser A A) :
+  aligned p ->
+  weak_backward p ->
+  backward p.
+Proof.
+  intros ALIGNED WBWD a s s' [a' Ea].
+  destruct (ALIGNED a).
+  rewrite Ea in H.
+  injection H; intros [] [].
+  apply (WBWD _ _ _ _ Ea).
+Qed.
+
+Theorem forward_aligned {A} (p : biparser A A) :
+  aligned p ->
+  weak_forward p ->
+  forward p.
+Proof.
+  intros ALIGNED WFWD a s01 s1 s0 E01 [a' E0].
+  destruct (ALIGNED a).
+  rewrite E0 in H.
+  injection H. intros; subst.
+  eapply WFWD; eauto.
+Qed.
 
 Lemma weak_backward_ret U A (a : A) : @weak_backward U A (ret a).
 Proof.
@@ -383,4 +440,22 @@ Proof.
   - discriminate.
   - inversion H1; inversion H2; subst.
     reflexivity.
+Qed.
+
+(**)
+
+Lemma weak_forward_digit {b} : weak_forward (biparse_digit b).
+Proof.
+  unfold biparse_digit.
+Abort.
+
+Lemma weak_backward_digit {b} : weak_backward (biparse_digit b).
+Proof.
+  unfold biparse_digit.
+  apply bind_comp.
+  - apply weak_backward_token.
+  - intros a.
+    destruct (Nat.leb_spec b a).
+    + apply weak_backward_empty.
+    + apply weak_backward_ret.
 Qed.
