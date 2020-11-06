@@ -1,48 +1,34 @@
-(* Promonad definitions *)
+(** * Promonads *)
 
-(* Some naming conventions
-   - [M]: a monad
-   - [P]: a promonad
-   - [A], [B]: "view types", covariant parameters of [P] and [M]
-   - [U], [V]: "pre-view types", contravariant parameters of [P]
-   - [Q], [Q_A], [Q_B]: a property on (pre-)views [A -> Prop], [B -> Prop]
-   - [R]: a property on (pro)monadic values, possibly indexed by [Q]
+(** Some naming conventions:
+  - [M]: a monad
+  - [P]: a promonad
+  - [A], [B]: "view types", covariant parameters of [P] and [M]
+  - [U], [V]: "pre-view types", contravariant parameters of [P]
+  - [Q], [Q_A], [Q_B]: a property on (pre-)views [A -> Prop], [B -> Prop]
+  - [R]: a property on (pro)monadic values, possibly indexed by [Q]
  *)
 
 Generalizable Variables M P.
 Implicit Type M : Type -> Type.
 Implicit Type P : Type -> Type -> Type.
 
+(* begin hide *)
 From Coq Require Import
   FunctionalExtensionality
   List.
 Import ListNotations.
 
+From Promonad Require Import
+  Utils.
+(* end hide *)
+
 Notation TyCon2 := (Type -> Type -> Type).
 
-(*** Common functions ***)
+(** ** Monads ***)
 
-Definition compose {A B C : Type} (f : B -> C) (g : A -> B) : A -> C := fun x => f (g x).
-Notation "f ∘ g" := (compose f g) (at level 20, right associativity).
+(** *** Operations *)
 
-Definition head A (xs : list A) : option A :=
-  match xs with
-  | [] => None
-  | x :: _ => Some x
-  end.
-
-Definition tail A (xs : list A) : option (list A) :=
-  match xs with
-  | [] => None
-  | _ :: xs' => Some xs'
-  end.
-
-Arguments head {A}.
-Arguments tail {A}.
-
-(*** Monads ***)
-
-(* Operations *)
 Class Monad (M : Type -> Type) :=
   { ret : forall A, A -> M A;
     bind : forall A B, M A -> (A -> M B) -> M B;
@@ -53,14 +39,18 @@ Arguments bind {M _ A B}.
 
 Notation "x <- m ;; k" := (bind m (fun x => k))
 (at level 90, right associativity).
+Infix ">>=" := bind (at level 61, left associativity).
 
-(* Laws *)
-Class MonadLaws (M : Type -> Type) {Monad_M : Monad M} :=
+(** *** Laws *)
+
+Class MonadLaws (M : Type -> Type) {Monad_M : Monad M} : Prop :=
   { bind_ret : forall A (m : M A), bind m ret = m;
     ret_bind : forall A B (a : A) (k : A -> M B), bind (ret a) k = k a;
     bind_bind : forall A B C (m : M A) (k : A -> M B) (h : B -> M C),
       bind (bind m k) h = bind m (fun a => bind (k a) h);
   }.
+
+(** *** Derived operations and laws *)
 
 Definition map {M : Type -> Type} `{Monad_M : Monad M} {A B : Type}
            (f : A -> B) (m : M A) :=
@@ -93,14 +83,15 @@ Proof.
   intros. unfold map. rewrite ret_bind. reflexivity.
 Qed.
 
-(* Monads with failure *)
+(** ** Monads with failure *)
+
 Class MonadPartial M `{Monad M} :=
   { empty : forall A, M A }.
 
 Arguments empty {M _ _ A}.
 
 Class MonadPartialLaws (M : Type -> Type)
-      `{MonadPartial_M : MonadPartial M} :=
+      `{MonadPartial_M : MonadPartial M} : Prop :=
   { partial_MonadLaws :> MonadLaws _;
     partial_left_zero : forall A B (k : A -> M B),
       bind empty k = empty;
@@ -130,19 +121,7 @@ Proof.
   apply partial_left_zero.
 Qed.
 
-(** Example: the [option] monad **)
-
-Definition bind_option {A B} (m : option A) (k : A -> option B) :=
-  match m with
-  | None => None
-  | Some x => k x
-  end.
-
-Delimit Scope opt_scope with opt.
-Bind Scope opt_scope with option.
-
-Notation "x <- m ;; k" := (bind_option m (fun x => k))
-(at level 90, right associativity) : opt_scope.
+(** ** Example: the [option] monad **)
 
 Instance Monad_option : Monad option :=
   {| ret _ a := Some a;
@@ -187,7 +166,9 @@ Proof.
   simpl; rewrite IHxs; auto.
 Qed.
 
-(** Monad morphisms ***)
+(** ** Monad morphisms ***)
+
+(** *** Laws *)
 
 Class MonadMorphism {M N} `{Monad M} `{Monad N}
       (f : forall {A}, M A -> N A) :=
@@ -196,23 +177,54 @@ Class MonadMorphism {M N} `{Monad M} `{Monad N}
         f (bind m k) = bind (f m) (fun a => f (k a));
   }.
 
-(*** Profunctors *)
+(** ** Profunctors *)
 
-(* Contravariant functor in its left parameter,
-   covariant functor in its second parameter. *)
+(** *** Operations *)
+
+(** Contravariant functor in its left parameter,
+  covariant functor in its second parameter. *)
 Class Profunctor (P : Type -> Type -> Type) : Type :=
   dimap :
     forall {U V A B : Type}, (U -> V) -> (A -> B) -> P V A -> P U B.
 
-(**)
+(** *** Laws *)
+
+Class ProfunctorLaws (P : Type -> Type -> Type) {Profunctor_P : Profunctor P} : Prop :=
+  { dimap_id : forall U A, dimap (@id U) (@id A) = @id (P U A)
+  ; dimap_compose :
+      forall U V W A B C
+        (f1 : W -> V) (f2 : V -> U)
+        (g1 : B -> C) (g2 : A -> B),
+        (dimap f1 g1 ∘ dimap f2 g2) = dimap (f2 ∘ f1) (g1 ∘ g2)
+  }.
+
+(** ** Partial profunctors *)
+
+(** *** Operations *)
+
 Class PartialProfunctor (P : Type -> Type -> Type) : Type :=
   { asProfunctor :> Profunctor P
   ; toFailureP :
       forall {A B : Type}, P A B -> P (option A) B
   }.
 
-(*** Promonads *)
+(** *** Laws *)
 
+Class PartialProfunctorLaws (P : Type -> Type -> Type) {PartialProfunctor_P : PartialProfunctor P} : Prop :=
+  { asProfunctorLaws :> ProfunctorLaws P
+  ; toFailureP_dimap :
+       forall U V A B (f : U -> V) (g : A -> B) (u : P V A),
+         toFailureP (dimap f g u) = dimap (option_map f) g (toFailureP u)
+  }.
+
+
+(** ** Promonads *)
+
+(** *** Operations *)
+
+(** ("Profmonad" in the paper) *)
+(** A promonad is a partial profunctor that's also a monad in its second
+  argument. *)
 Class Promonad (P : Type -> Type -> Type) :=
   { asMonad :> forall U, Monad (P U)
   ; asPartialProfunctor :> PartialProfunctor P
@@ -234,21 +246,7 @@ Notation "x <-( f ) m ;; m2" :=
   (x <- comap (fun z => Some (f z)) m ;; m2)
 (at level 90, right associativity).
 
-Class ProfunctorLaws (P : Type -> Type -> Type) {Profunctor_P : Profunctor P} : Prop :=
-  { dimap_id : forall U A, dimap (@id U) (@id A) = @id (P U A)
-  ; dimap_compose :
-      forall U V W A B C
-        (f1 : W -> V) (f2 : V -> U)
-        (g1 : B -> C) (g2 : A -> B),
-        (dimap f1 g1 ∘ dimap f2 g2) = dimap (f2 ∘ f1) (g1 ∘ g2)      
-  }.
-
-Class PartialProfunctorLaws (P : Type -> Type -> Type) {PartialProfunctor_P : PartialProfunctor P} : Prop :=
-  { asProfunctorLaws :> ProfunctorLaws P
-  ; toFailureP_dimap :
-       forall U V A B (f : U -> V) (g : A -> B) (u : P V A),
-         toFailureP (dimap f g u) = dimap (option_map f) g (toFailureP u)
-  }.
+(** *** Laws *)
 
 Class PromonadLaws (P : Type -> Type -> Type)
       {Promonad_P : Promonad P} :=
@@ -257,6 +255,8 @@ Class PromonadLaws (P : Type -> Type -> Type)
   ; comap_morphism :> forall U V (f : U -> V),
       MonadMorphism (fun A => comap (fun u => Some (f u)));
   }.
+
+(** *** Derived laws *)
 
 Lemma comap_morph_ret P `{PromonadLaws P} U V A
       (f : U -> V) (a : A) :
@@ -279,7 +279,9 @@ Proof.
   apply morph_bind.
 Qed.
 
-(** Promonad morphisms *)
+(** ** Promonad morphisms *)
+
+(** *** Laws *)
 
 Class PromonadMorphism {P Q : TyCon2}
       `{Promonad P} `{Promonad Q}
@@ -289,10 +291,14 @@ Class PromonadMorphism {P Q : TyCon2}
         phi _ _ (comap f m) = comap f (phi _ _ m);
   }.
 
-(*** [Fwd] promonad ***)
+(** ** [Fwd] promonad ***)
+
+(** *** Definition *)
 
 Definition Fwd (M : Type -> Type) : TyCon2 :=
   fun U A => M A.
+
+(** *** Instances *)
 
 Instance Monad_Fwd (M : Type -> Type) `{Monad M} :
   forall U, Monad (Fwd M U) :=
@@ -360,10 +366,14 @@ Proof.
       reflexivity.
 Qed.
 
-(*** [Bwd] promonad ***)
+(** ** [Bwd] promonad ***)
+
+(** *** Definition *)
 
 Definition Bwd (M : Type -> Type) : Type -> Type -> Type :=
   fun U A => U -> M A.
+
+(** *** Instances *)
 
 Instance Monad_Bwd (M : Type -> Type) `{Monad M} :
   forall U, Monad (Bwd M U) :=
@@ -446,10 +456,14 @@ Proof.
       reflexivity.
 Qed.
 
-(*** Product promonad ***)
+(** ** Product promonad ***)
+
+(** *** Definition *)
 
 Definition Product (P1 P2 : Type -> Type -> Type) :=
   fun U A => (P1 U A * P2 U A)%type.
+
+(** *** Instances *)
 
 Instance Monad_Product P1 P2 U
          `{Monad (P1 U), Monad (P2 U)} :
