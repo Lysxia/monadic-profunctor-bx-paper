@@ -1,4 +1,4 @@
-(* Biparsers *)
+(** * Biparsers *)
 
 (* The main results formalized here are
    [Compositional_weak_backward]:
@@ -10,9 +10,9 @@
      when the continuation is an injective arrow
      ([weak_forward_bind]). *)
 
-Typeclasses eauto := 6.
 Generalizable Variables P.
 
+(* begin hide *)
 From Coq Require Import
   FunctionalExtensionality
   PeanoNat
@@ -20,34 +20,28 @@ From Coq Require Import
 Import ListNotations.
 
 From Promonad Require Import
-  Promonad.
+  Promonad
+  Utils.
+(* end hide *)
 
-(* Primitives *)
+(** ** Parser primitives *)
 
+(** Type of tokens *)
 Definition t : Type := nat.
 
+(** Parse a token using [biparse_token].
+  More complex biparsers are defined using promonadic operations. *)
 Class Biparser (P : Type -> Type -> Type) :=
-  {
-    Biparser_Promonad :> Promonad P;
+  { Biparser_Promonad :> Promonad P;
     Biparser_Partial :> forall U, MonadPartial (P U);
     biparse_token : P t t;
   }.
 
 Arguments biparse_token {P _}.
 
-Instance Biparser_product P1 P2 `{Biparser P1, Biparser P2} :
-  Biparser (Product P1 P2) :=
-  { biparse_token := (biparse_token, biparse_token);
-  }.
+(** ** Example biparsers *)
 
-(*********************)
-(* Example biparsers *)
-(*********************)
-
-Definition total {A B} (f : A -> B) : A -> option B :=
-  fun a => Some (f a).
-
-(* Get a single [nat] token less than b. *)
+(** Get a single [nat] token less than b. *)
 Definition biparse_digit `{Biparser P} (b : nat) : P nat nat :=
   x <- biparse_token ;;
   if Nat.leb b x then
@@ -55,7 +49,7 @@ Definition biparse_digit `{Biparser P} (b : nat) : P nat nat :=
   else
     ret x.
 
-(* Parse a k-digit number in base b *)
+(** Parse a k-digit number in base b *)
 Fixpoint biparse_nat `{Biparser P} (b : nat) (k : nat)
   : P nat nat :=
   match k with
@@ -66,16 +60,27 @@ Fixpoint biparse_nat `{Biparser P} (b : nat) (k : nat)
     ret (b * x + y)
   end.
 
-(* Parse a length n followed by a list of nat-tokens ("string"). *)
+(** Parse a length n followed by a list of nat-tokens ("string"). *)
 Definition biparse_string `{Biparser P} : P (list nat) (list nat) :=
   n <-( @length _ ) biparse_nat 10 3;;
   replicate n biparse_token.
 
-(*** Parser promonad ***)
+(** ** Instances *)
 
-Definition stream := list nat.
+(** *** Products *)
 
-(* Parser monad *)
+Instance Biparser_product P1 P2 `{Biparser P1, Biparser P2} :
+  Biparser (Product P1 P2) :=
+  { biparse_token := (biparse_token, biparse_token);
+  }.
+
+(** *** Parser promonad ***)
+
+(** Input streams *)
+Definition stream := list t.
+
+(** **** Parser monad *)
+
 Definition parser (A : Type) : Type := stream -> option (A * stream).
 
 Instance Monad_parser : Monad parser :=
@@ -110,6 +115,8 @@ Qed.
 Instance MonadPartial_parser : MonadPartial parser :=
   { empty := fun _ _ => None }.
 
+(** **** Parser promonad *)
+
 Definition parser2 := Fwd parser.
 
 Definition Promonad_parser2 := Promonad_Fwd parser.
@@ -123,7 +130,9 @@ Instance Biparser_parser2 : Biparser parser2 :=
   }.
 
 
-(*** Printer promonad ***)
+(** *** Printer promonad ***)
+
+(** **** Printer monad *)
 
 Definition printer (A : Type) := option (stream * A).
 
@@ -166,6 +175,8 @@ Proof.
   constructor; try typeclasses eauto; auto.
 Qed.
 
+(** **** Printer promonad *)
+
 Definition printer2 := Bwd printer.
 
 Instance Biparser_printer2 : Biparser printer2 :=
@@ -202,9 +213,14 @@ Proof.
   - auto.
 Qed.
 
-(*********************************)
-(* Toplevel roundtrip properties *)
-(*********************************)
+(** *** The biparser promonad *)
+
+(** The product of parser and printer promonads *)
+Definition biparser : Type -> Type -> Type := Product parser2 printer2.
+
+(** ** Roundtrip properties *)
+
+(** *** Strong roundtrip properties *)
 
 Definition left_round_trip A (P : A -> Prop)
            (pa : parser2 A A) (pr : printer2 A A)
@@ -230,8 +246,6 @@ Definition right_round_trip A (pa : parser2 A A) (pr : printer2 A A)
     | Some _ => True
     end.
 
-Definition biparser : Type -> Type -> Type := Product parser2 printer2.
-
 Definition backward {A} (p : biparser A A) : Prop :=
   forall (a : A) (s s' : list t),
     (exists a', snd p a = Some (s, a')) ->
@@ -243,8 +257,7 @@ Definition forward {A} (p : biparser A A) : Prop :=
     (exists a', snd p a = Some (s0, a')) ->
     s01 = s0 ++ s1.
 
-Definition purify {U V} (p : biparser U V) : pfunction U V :=
-  fun a => option_map snd (snd p a).
+(** *** Weak but compositional roundtrip properties *)
 
 Definition weak_backward {U A} (p : biparser U A) : Prop :=
   forall (u : U) (a : A) (s s' : list t),
@@ -257,6 +270,11 @@ Definition weak_forward {U A} (p : biparser U A) : Prop :=
     snd p u = Some (s0, a) ->
     s01 = s0 ++ s1.
 
+(** *** Purification, alignment *)
+
+Definition purify {U V} (p : biparser U V) : pfunction U V :=
+  fun a => option_map snd (snd p a).
+
 Definition aligned {A} (p : biparser A A) : Prop :=
   forall (a : A),
     exists s0, snd p a = Some (s0, a).
@@ -268,7 +286,7 @@ Definition aligned_ {U A} (f : U -> A) (p : biparser U A) : Prop :=
 Definition aligned' {A} (p : pfunction A A) : Prop :=
   forall (a : A), p a = Some a.
 
-Definition aligned_equiv {A} (p : biparser A A)
+Theorem aligned_equiv {A} (p : biparser A A)
   : aligned p <-> aligned' (purify p).
 Proof.
   split; intros H a; unfold aligned, aligned', purify in *.
@@ -278,6 +296,8 @@ Proof.
     destruct (snd p a) as [ [] | ]; cbn in H; try discriminate.
     injection H; intros []; eauto.
 Qed.
+
+(** ** Connection between strong and weak roundtrip properties **)
 
 Theorem backward_aligned {A} (p : biparser A A) :
   aligned p ->
@@ -302,6 +322,8 @@ Proof.
   injection H. intros; subst.
   eapply WFWD; eauto.
 Qed.
+
+(** ** Compositionality of weak roundtrip properties *)
 
 Lemma weak_backward_ret U A (a : A) : @weak_backward U A (ret a).
 Proof.

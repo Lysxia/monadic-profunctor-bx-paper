@@ -35,3 +35,6 @@ Bind Scope opt_scope with option.
 Notation "x <- m ;; k" := (bind_option m (fun x => k))
 (at level 90, right associativity) : opt_scope.
 
+(** Extend a total function to a partial one. *)
+Definition total {A B} (f : A -> B) : A -> option B :=
+  fun a => Some (f a).
