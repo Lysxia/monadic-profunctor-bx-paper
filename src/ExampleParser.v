@@ -500,12 +500,44 @@ Lemma weak_forward_nat b k : weak_forward (biparse_nat b k).
 Proof.
 Admitted.
 
+Lemma fmap_fmap_ {M} `{MonadLaws M} A B C (u : M A) (f : A -> B) (g : B -> C)
+  : (u >>= fun x => ret (g (f x))) = ((u >>= fun x => ret (f x)) >>= fun y => ret (g y)).
+Proof.
+  rewrite bind_bind.
+  f_equal. apply functional_extensionality. intros x.
+  rewrite ret_bind.
+  reflexivity.
+Qed.
+
+Lemma replicate_length {P} `{Biparser P} {PL : PromonadLaws P} (n : nat)
+  : replicate (P := P) n biparse_token >>= (fun x : list t => ret (List.length x))
+  = replicate n biparse_token >>= (fun _ : list t => ret n).
+Proof.
+  induction n; cbn.
+  - rewrite 2 ret_bind. reflexivity.
+  - rewrite !bind_bind. f_equal. apply functional_extensionality. intros x.
+    rewrite !bind_bind.
+    transitivity (comap (P := P) tail (replicate n biparse_token >>= fun x => ret (length x)) >>= fun n => ret (S n)).
+    + admit.
+    + admit.
+Admitted.
+
+Lemma replicate_length_ P `{Biparser P} (PL : PromonadLaws P) (n : nat)
+  : replicate (P := P) n biparse_token >>= (fun x : list t => ret (Some (List.length x)))
+  = replicate n biparse_token >>= (fun _ : list t => ret (Some n)).
+Proof.
+  rewrite fmap_fmap_.
+  rewrite fmap_fmap_ with (f := fun _ => n).
+  f_equal.
+  apply replicate_length.
+Qed.
+
 Theorem weak_forward_string
   : weak_forward biparse_string.
 Proof.
   unfold biparse_string.
-  eapply bind_comp'.
+  eapply bind_comp' with (f := fun x => Some (List.length x)).
   2:{ apply comap_comp'. apply weak_forward_nat. }
   2:{ intros a; apply weak_forward_replicate. apply weak_forward_token. }
-  { admit. }
-Admitted.
+  { apply replicate_length_. }
+Qed.
