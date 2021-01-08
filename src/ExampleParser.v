@@ -522,7 +522,7 @@ Proof.
     + admit.
 Admitted.
 
-Lemma replicate_length_ P `{Biparser P} (PL : PromonadLaws P) (n : nat)
+Lemma replicate_length_ {P} `{Biparser P} {PL : PromonadLaws P} (n : nat)
   : replicate (P := P) n biparse_token >>= (fun x : list t => ret (Some (List.length x)))
   = replicate n biparse_token >>= (fun _ : list t => ret (Some n)).
 Proof.
