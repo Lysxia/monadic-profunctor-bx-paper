@@ -250,11 +250,16 @@ Notation "x <-( f ) m ;; m2" :=
 
 Class PromonadLaws (P : Type -> Type -> Type)
       {Promonad_P : Promonad P} :=
-  { asMonadLaws :> forall U, MonadLaws (P U)
-  ; asPartialProfunctorLaws :> PartialProfunctorLaws P
-  ; comap_morphism :> forall U V (f : U -> V),
+  { asMonadLaws : forall U, MonadLaws (P U)
+  ; asPartialProfunctorLaws : PartialProfunctorLaws P
+  ; comap_morphism : forall U V (f : U -> V),
       MonadMorphism (fun A => comap (fun u => Some (f u)));
   }.
+
+Existing Instance comap_morphism.
+Existing Instance asMonadLaws.
+Existing Instance asPartialProfunctorLaws.
+
 
 (** *** Derived laws *)
 
@@ -588,7 +593,7 @@ Instance Promonad_pfunction : Promonad pfunction :=
 (*** Compositionality ***)
 
 Class Compositional
-      (P : Type -> Type -> Type)
+      {P : Type -> Type -> Type}
       `{Promonad P}
       (R : forall A B, P A B -> Prop) :=
   {

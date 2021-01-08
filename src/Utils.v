@@ -35,6 +35,18 @@ Bind Scope opt_scope with option.
 Notation "x <- m ;; k" := (bind_option m (fun x => k))
 (at level 90, right associativity) : opt_scope.
 
+Lemma option_bind_inv_Some {A B} (u : option A) (k : A -> option B) (b : B)
+  : bind_option u k = Some b -> exists a, u = Some a.
+Proof.
+  destruct u; discriminate + eauto.
+Qed.
+
+Lemma option_map_inv_Some {A B} (f : A -> B) (u : option A) (b : B)
+  : option_map f u = Some b -> exists a, u = Some a.
+Proof.
+  destruct u; discriminate + eauto.
+Qed.
+
 (** Extend a total function to a partial one. *)
 Definition total {A B} (f : A -> B) : A -> option B :=
   fun a => Some (f a).

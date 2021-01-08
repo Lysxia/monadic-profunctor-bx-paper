@@ -367,7 +367,7 @@ Proof.
 Qed.
 
 Instance Compositional_weak_backward :
-  Compositional biparser (@weak_backward) := {
+  Compositional (@weak_backward) := {
   ret_comp := weak_backward_ret;
   bind_comp := weak_backward_bind;
   comap_comp := weak_backward_comap;
