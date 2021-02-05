@@ -39,6 +39,39 @@ Proof.
   - exact (PromonadLaws_Bwd option).
 Qed.
 
+Definition run_gen {A B : Type} (g : bigen A B) : gen B :=
+  fst g.
+
+Definition member {A} (a : A) (g : gen A) : Prop :=
+  List.In a g.
+
+Definition is_Some {A : Type} (o : option A) : bool :=
+  match o with
+  | Some _ => true
+  | None => false
+  end.
+
+Definition run_predP {A B : Type} (g : bigen A B) : A -> option B :=
+  snd g.
+
+Definition run_pred {A B : Type} (g : bigen A B) : A -> bool :=
+  fun x => is_Some (snd g x).
+
+Definition filter_ {A B} (f : A -> bool) : bigen unit B -> bigen A B :=
+  comap (fun x => if f x then Some tt else None).
+
+Definition bigen_bool : bigen bool bool :=
+  ( [true; false]
+  , Some
+  ).
+
+Definition bigen_range (min max : nat) : bigen nat nat :=
+  ( seq min (max + 1 - min)
+  , fun x => if (min <=? x) && (x <=? max) then Some x else None
+  )%bool.
+
+(** * Generating binary search trees *)
+
 Inductive tree (A : Type) : Type :=
 | Leaf
 | Node : tree A -> A -> tree A -> tree A
@@ -68,19 +101,6 @@ Definition Node_right {A} (t : tree A) : option (tree A) :=
   | _ => None
   end.
 
-Definition bigen_bool : bigen bool bool :=
-  ( [true; false]
-  , Some
-  ).
-
-Definition bigen_range (min max : nat) : bigen nat nat :=
-  ( seq min (max + 1 - min)
-  , fun x => if (min <=? x) && (x <=? max) then Some x else None
-  )%bool.
-
-Definition filter_ {A B} (f : A -> bool) : bigen unit B -> bigen A B :=
-  comap (fun x => if f x then Some tt else None).
-
 Definition bigen_leaf : bigen (tree nat) (tree nat) :=
   filter_ is_Leaf (ret Leaf).
 
@@ -98,23 +118,7 @@ Fixpoint bigen_bst (d : nat) (min max : nat) : bigen (tree nat) (tree nat) :=
   | _, _ => bigen_leaf
   end.
 
-Definition run_gen {A B : Type} (g : bigen A B) : gen B :=
-  fst g.
-
-Definition member {A} (a : A) (g : gen A) : Prop :=
-  List.In a g.
-
-Definition is_Some {A : Type} (o : option A) : bool :=
-  match o with
-  | Some _ => true
-  | None => false
-  end.
-
-Definition run_predP {A B : Type} (g : bigen A B) : A -> option B :=
-  snd g.
-
-Definition run_pred {A B : Type} (g : bigen A B) : A -> bool :=
-  fun x => is_Some (snd g x).
+(** * Generator soundness and completeness *)
 
 Definition sound {A : Type} (g : bigen A A) : Prop :=
   forall x, member x (run_gen g) -> run_pred g x = true.
