@@ -24,7 +24,7 @@ Record Lens (S U A : Type) : Type := {
 Arguments get {S U A}.
 Arguments put {S U A}.
 
-Definition bind {S U A B : Type}
+Definition bind_Lens {S U A B : Type}
            (m : Lens S U A) (k : A -> Lens S U B) : Lens S U B := {|
   get s := a <- get m s;; get (k a) s;
   put u s :=
@@ -35,27 +35,28 @@ Definition bind {S U A B : Type}
     ret (b, s, fun x => (p x && q x)%bool)
 |}.
 
-Definition ret {S U A : Type} (a : A) : Lens S U A := {|
+Definition ret_Lens {S U A : Type} (a : A) : Lens S U A := {|
   get _ := Some a;
   put _ s := Some (a, s, fun _ => true);
 |}.
 
-Instance Monad_Lens S U : Monad (Lens S U) := {|
-  Promonad.bind _ _ := bind;
-  Promonad.ret _ := ret;
+Definition Monad_Lens S U : Monad (Lens S U) := {|
+  Promonad.bind _ _ := bind_Lens;
+  Promonad.ret _ := ret_Lens;
 |}.
 
 Definition map1_triple {a a' b c} (f : a -> a') (x : a * b * c) : a' * b * c :=
   (f (fst (fst x)), snd (fst x), snd x).
 
-Instance Profunctor_Lens S : Profunctor (Lens S) :=
+Definition Profunctor_Lens S : Profunctor (Lens S) :=
   fun _ _ _ _ f g l =>
     {| get s := option_map g (get l s)
     ;  put x s := option_map (map1_triple g) (put l (f x) s)
     |}.
 
-Instance PartialProfunctor_Lens S : PartialProfunctor (Lens S) := {|
-  toFailureP A B (l : Lens S A B) :=
+Definition PartialProfunctor_Lens S : PartialProfunctor (Lens S) := {|
+  asProfunctor := Profunctor_Lens S
+; toFailureP A B (l : Lens S A B) :=
     {| get s := get l s
     ;  put ox s := bind_option ox (fun x => put l x s)
     |}
@@ -63,7 +64,7 @@ Instance PartialProfunctor_Lens S : PartialProfunctor (Lens S) := {|
 
 Instance Promonad_Lens S : Promonad (Lens S).
 Proof.
-  constructor; typeclasses eauto.
+  constructor; eauto using Monad_Lens, PartialProfunctor_Lens.
 Defined.
 
 Definition cat {S T U} (l1 : Lens S T T) (l2 : Lens T U U) : Lens S U U :=
@@ -177,17 +178,17 @@ Proof. reflexivity. Qed.
 Instance MonadLaws_Lens {S U} : MonadLaws (Lens S U).
 Proof.
   constructor; cbn.
-  - intros ? []; unfold bind; cbn.
+  - intros ? []; unfold bind_Lens; cbn.
     f_equal.
     + apply functional_extensionality; intros. exact (bind_ret (M := option) _ _).
     + do 2 (apply functional_extensionality; intros).
       destruct (put0 x x0) as [ [[] ?] | ]; cbn; f_equal.
       f_equal. apply functional_extensionality; intros ?. rewrite Bool.andb_true_r. reflexivity.
-  - intros ? ? ? ?; unfold bind; cbn.
+  - intros ? ? ? ?; unfold bind_Lens; cbn.
     destruct (k a); cbn; f_equal.
     do 2 (apply functional_extensionality; intros).
     destruct (put0 x x0) as [ [[] ?] | ]; cbn; f_equal.
-  - intros; unfold bind; cbn. f_equal.
+  - intros; unfold bind_Lens; cbn. f_equal.
     + apply functional_extensionality; intros; exact (bind_bind (M := option) _ _ _ _ _ _).
     + do 2 (apply functional_extensionality; intros).
       destruct (put m x x0) as [ [[] ?] | ]; cbn; [ | reflexivity ].
@@ -225,8 +226,8 @@ Instance comap_morphism_Lens {S U V : Type} (f : U -> V)
       (fun A : Type => comap (fun u : U => Some (f u))).
 Proof.
   constructor; cbn; unfold Profunctor_Lens; cbn.
-  - intros; unfold ret; cbn. f_equal.
-  - intros; unfold bind; cbn. f_equal.
+  - intros; unfold ret_Lens; cbn. f_equal.
+  - intros; unfold bind_Lens; cbn. f_equal.
     + apply functional_extensionality; intros.
       destruct get; cbn; reflexivity.
     + do 2 (apply functional_extensionality; intros).
@@ -262,7 +263,7 @@ Proof.
   { symmetry. eapply Hm; eauto. }
 Qed.
 
-Lemma Compositional_weak_backward {S} : Compositional (@weak_backward S).
+Instance Compositional_weak_backward {S} : Compositional (@weak_backward S).
 Proof.
   constructor; cbn.
   - typeclasses eauto.
@@ -312,7 +313,7 @@ Proof.
   revert Hget eputk. red in Hk. apply Hk.
 Qed.
 
-Lemma Quasicompositional_weak_forward {S} : Quasicompositional (@weak_forward S).
+Instance Quasicompositional_weak_forward {S} : Quasicompositional (@weak_forward S).
 Proof.
   constructor; cbn.
   - red; cbn; intros. inversion H0; auto.
@@ -323,4 +324,21 @@ Proof.
     destruct put as [ [[] ?] | ] eqn:Hput; unfold map1_triple in H1; cbn in H1; [ | discriminate ].
     inversion H1; subst; clear H1.
     revert Hget Hput; apply H.
+Qed.
+
+Lemma weak_backward_atKey k : weak_backward (atKey k).
+Proof.
+  unfold weak_backward; cbn; intros.
+  inversion H; subst; clear H.
+  f_equal.
+  apply Nat.eqb_eq. auto.
+Qed.
+
+Lemma weak_backward_atKeys ks : weak_backward (atKeys ks).
+Proof.
+  induction ks; cbn [atKeys].
+  - apply ret_comp.
+  - apply bind_comp. { apply comap_comp, weak_backward_atKey. }
+    intros; apply bind_comp. { apply comap_comp; auto. }
+    intros; apply ret_comp.
 Qed.
