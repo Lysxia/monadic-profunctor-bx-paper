@@ -80,6 +80,27 @@ Definition cat {S T U} (l1 : Lens S T T) (l2 : Lens T U U) : Lens S U U :=
           None))
       end |}.
 
+Definition Key := nat.
+Definition Val := nat.
+Definition Map := (Key -> Val).
+
+Definition insert (k : Key) (x : Val) (f : Map) : Map :=
+  fun k' => if Nat.eqb k k' then x else f k'.
+
+Definition atKey (k : Key) : Lens Map Val Val :=
+  {| get f := Some (f k)
+  ;  put x f := Some (x, insert k x f, fun f' => Nat.eqb (f' k) x)
+  |}.
+
+Fixpoint atKeys (ks : list Key) : Lens Map (list Val) (list Val) :=
+  match ks with
+  | nil => ret nil
+  | k :: ks =>
+    bind (comap head (atKey k)) (fun x =>
+    bind (comap tail (atKeys ks)) (fun xs =>
+    ret (x :: xs)))
+  end.
+
 Inductive Tree : Type :=
 | Leaf
 | Node : Tree -> nat -> Tree -> Tree
