@@ -118,6 +118,12 @@ Fixpoint bigen_bst (d : nat) (min max : nat) : bigen (tree nat) (tree nat) :=
   | _, _ => bigen_leaf
   end.
 
+Definition gen_bst (d : nat) (min max : nat) : gen (tree nat) :=
+  run_gen (bigen_bst d min max).
+
+Definition check_bst (d : nat) (min max : nat) : tree nat -> bool :=
+  run_pred (bigen_bst d min max).
+
 (** * Generator soundness and completeness *)
 
 Definition sound {A : Type} (g : bigen A A) : Prop :=
@@ -226,4 +232,87 @@ Proof.
       }
 Qed.
 
-Print Assumptions weak_complete_bst.
+Lemma aligned_leaf : aligned bigen_leaf.
+Proof.
+  unfold bigen_leaf.
+  intros x y.
+  destruct x; cbn.
+  - injection 1. auto.
+  - discriminate.
+Qed.
+
+Lemma run_predP_bind_comap {U V A B} (f : U -> V) u (k : A -> bigen U B) x
+  : run_predP (b <-( f ) u ;; k b) x = Utils.bind_option (run_predP u (f x)) (fun b => run_predP (k b) x).
+Proof.
+  cbn. unfold Profunctor_pfunction. cbn.
+  f_equal.
+  unfold run_predP.
+  destruct snd; reflexivity.
+Qed.
+
+Lemma aligned_bigen_bool : aligned bigen_bool.
+Proof.
+  cbv; congruence.
+Qed.
+
+Lemma valigned_bigen_bool b : run_predP bigen_bool b = Some b.
+Proof.
+  reflexivity.
+Qed.
+
+Lemma run_predP_bind {U A B} (u : bigen U A) (k : A -> bigen U B) x
+  : run_predP (bind u k) x = Utils.bind_option (run_predP u x) (fun y => run_predP (k y) x).
+Proof.
+  reflexivity.
+Qed.
+
+Lemma run_predP_comap {U V A} (f : V -> option U) (u : bigen U A) x
+  : run_predP (comap f u) x = Utils.bind_option (f x) (run_predP u).
+Proof.
+  cbn; unfold Profunctor_pfunction. destruct (f x); cbn.
+  - unfold run_predP. destruct snd; reflexivity.
+  - reflexivity.
+Qed.
+
+Lemma aligned_bigen_range min max : aligned (bigen_range min max).
+Proof.
+  red; cbn. intros x y.
+  destruct (Nat.leb_spec min x).
+  - destruct (Nat.leb_spec x max); cbn.
+    + injection 1; auto.
+    + discriminate.
+  - discriminate.
+Qed.
+
+Theorem aligned_bst d min max : aligned (bigen_bst d min max).
+Proof.
+  revert min max; induction d; intros; cbn [bigen_bst].
+  - exact @aligned_leaf.
+  - destruct (Nat.ltb_spec max min).
+    + exact @aligned_leaf.
+    + unfold aligned.
+      intros x y.
+      rewrite run_predP_bind_comap.
+      rewrite valigned_bigen_bool; cbn [Utils.bind_option].
+      destruct x; cbn [is_Leaf].
+      * injection 1; auto.
+      * rewrite run_predP_bind, run_predP_comap. cbn [Utils.bind_option Node_value].
+        destruct run_predP eqn:Erange; cbn [Utils.bind_option]; [ | discriminate].
+        apply aligned_bigen_range in Erange; subst.
+        rewrite run_predP_bind, run_predP_comap. cbn [Utils.bind_option Node_left].
+        destruct run_predP eqn:Eleft; cbn [Utils.bind_option]; [ | discriminate].
+        apply IHd in Eleft; subst.
+        rewrite run_predP_bind, run_predP_comap. cbn [Utils.bind_option Node_right].
+        destruct run_predP eqn:Eright; cbn [Utils.bind_option]; [ | discriminate].
+        apply IHd in Eright; subst.
+        injection 1. auto.
+Qed.
+
+Theorem complete_bst d min max : complete (bigen_bst d min max).
+Proof.
+  apply aligned_weak_complete.
+  - apply aligned_bst.
+  - apply weak_complete_bst.
+Qed.
+
+Print Assumptions complete_bst.
