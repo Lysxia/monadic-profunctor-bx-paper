@@ -595,7 +595,7 @@ Instance Promonad_pfunction : Promonad pfunction :=
 Class Compositional
       {P : Type -> Type -> Type}
       `{Promonad P}
-      (R : forall A B, P A B -> Prop) :=
+      (R : forall A B, P A B -> Prop) : Prop :=
   {
     CompositionalWithLawful :> PromonadLaws _;
     ret_comp :
@@ -616,7 +616,7 @@ Class Compositional
 Class Quasicompositional
       {P : Type -> Type -> Type}
       `{Promonad P}
-      (R : forall A B, P A B -> Prop) :=
+      (R : forall A B, P A B -> Prop) : Prop :=
   {
     ret_comp' :
       forall A0 A a, R A0 A (ret a);
@@ -648,6 +648,62 @@ Instance Quasicompositional_Compositional {P} (R : forall A B, P A B -> Prop) `{
 Proof.
   destruct H0; constructor; auto.
 Qed.
+
+Definition mrange {M} `{MonadPartial M} {A} (p : A -> bool) (u : M A) : Prop
+  := u = (u >>= fun x => if p x then ret x else empty).
+
+Class Compositional' (P : Type -> Type -> Type) (R : forall A B, P A B -> Prop)
+    `{forall U, Monad (P U)}
+    `{forall U, @MonadPartial (P U) _}
+    `{forall U, @MonadPartialLaws (P U) _ _} : Prop :=
+  { empty_comp : forall U A, R U A empty
+  }.
+
+Lemma bind_comp_range {P} {R : forall A B, P A B -> Prop}
+    `{Compositional P R}
+    `{!forall U, @MonadPartial (P U) _}
+    `{!forall U, @MonadPartialLaws (P U) _ _}
+    `{!Compositional' P R}
+  : forall U A B (p : A -> bool) (m : P U A) (k : A -> P U B) ,
+      mrange p m ->
+      R U A m ->
+      (forall a, p a = true -> R U B (k a)) ->
+      R U B (bind m k).
+Proof.
+  intros * Hmrange Hm Hk.
+  rewrite Hmrange, bind_bind.
+  apply bind_comp; [ auto | ].
+  intros; destruct (p a) eqn:Hpa.
+  - rewrite ret_bind; auto.
+  - rewrite partial_left_zero.
+    apply empty_comp.
+Qed.
+
+Lemma bind_comp_range' {P} {R : forall A B, P A B -> Prop}
+    `{Quasicompositional P R}
+    `{!forall U, @MonadPartial (P U) _}
+    `{!forall U, @MonadPartialLaws (P U) _ _}
+    `{!Compositional' P R}
+  : forall U A B (p : A -> bool) (m : P U A) (k : A -> P U B) (f : B -> option A),
+      mrange p m ->
+      (forall a, (x <- k a;; ret (f x)) = (x <- k a;; ret (Some a))) ->
+      R U A m ->
+      (forall a, p a = true -> R U B (k a)) ->
+      R U B (bind m k).
+Proof.
+  intros * Hmrange Hsag Hm Hk.
+  rewrite Hmrange, bind_bind.
+  eapply bind_comp'; [ | auto | ].
+  { intros; destruct (p a).
+    - rewrite ret_bind; auto.
+    - rewrite 3 partial_left_zero. reflexivity. }
+  intros; destruct (p a) eqn:Hpa.
+  - rewrite ret_bind; auto.
+  - rewrite partial_left_zero.
+    apply empty_comp.
+Qed.
+
+(**)
 
 (* replicate preserves quasicompositional properties *)
 Lemma replicate_comp P

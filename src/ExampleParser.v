@@ -498,6 +498,14 @@ Qed.
 
 Lemma weak_forward_nat b k : weak_forward (biparse_nat b k).
 Proof.
+  induction k; cbn [biparse_nat].
+  - apply ret_comp'.
+  - apply bind_comap_comp'.
+    { admit. }
+    { auto. }
+    intros; apply bind_comap_comp'.
+    { intros; rewrite 2 ret_bind.
+
 Admitted.
 
 Lemma fmap_fmap_ {M} `{MonadLaws M} A B C (u : M A) (f : A -> B) (g : B -> C)
