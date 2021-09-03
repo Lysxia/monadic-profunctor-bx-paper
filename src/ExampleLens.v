@@ -67,7 +67,7 @@ Proof.
   constructor; eauto using Monad_Lens, PartialProfunctor_Lens.
 Defined.
 
-Definition any_option {A} (p : A -> bool) (ox : option A) : bool :=
+Definition anyb_option {A} (p : A -> bool) (ox : option A) : bool :=
   match ox with
   | None => false
   | Some x => p x
@@ -79,7 +79,7 @@ Definition cat {S T U} (l1 : Lens S T T) (l2 : Lens T U U) : Lens S U U :=
         bind_option (get l1 s) (fun t =>
         bind_option (put l2 x t) (fun '(y, xt, q') =>
         bind_option (put l1 xt s) (fun '(_, s', p') =>
-        Some (y, s', fun s_ => (p' s_ && any_option q' (get l1 s_))%bool))))
+        Some (y, s', fun s_ => (p' s_ && anyb_option q' (get l1 s_))%bool))))
   |}.
 
 Definition Key := nat.
@@ -272,11 +272,24 @@ Proof.
   constructor; cbn; typeclasses eauto.
 Qed.
 
+Definition backward {S A} (l : Lens S A A) : Prop :=
+  forall a a' s s_ s' p,
+    put l a s = Some (a', s_, p) ->
+    p s' = true ->
+    get l s' = Some a.
+
 Definition weak_backward {S U A} (m : Lens S U A) : Prop :=
   forall u a s s_ s' p,
     put m u s = Some (a, s_, p) ->
     p s' = true ->
     get m s' = Some a.
+
+Definition backward_on {S A} (P : A -> Prop) (l : Lens S A A) : Prop :=
+  forall a a' s s_ s' p,
+    P a ->
+    put l a s = Some (a', s_, p) ->
+    p s' = true ->
+    get l s' = Some a.
 
 Lemma weak_backward_bind {S U A B} (m : Lens S U A)
       (k : A -> Lens S U B)
@@ -310,6 +323,13 @@ Qed.
 
 Definition forward {S A} (m : Lens S A A) : Prop :=
   forall a a' s s' p,
+    get m s = Some a ->
+    put m a s = Some (a', s', p) ->
+    s = s'.
+
+Definition forward_on {S A} (P : A -> Prop) (m : Lens S A A) : Prop :=
+  forall a a' s s' p,
+    P a ->
     get m s = Some a ->
     put m a s = Some (a', s', p) ->
     s = s'.
@@ -364,6 +384,105 @@ Proof.
     revert Hget Hput; apply H.
 Qed.
 
+Definition all_option {A} (P : A -> Prop) (ox : option A) : Prop :=
+  match ox with
+  | None => True
+  | Some x => P x
+  end.
+
+Definition aligned_at {S A B} (l : Lens S A B) (a : A) (b : B) : Prop :=
+  forall s,
+    all_option (fun '(b', _, _) => b = b') (put l a s).
+
+Lemma aligned_at_bind {S U A B} (m : Lens S U A) (k : A -> Lens S U B) (x : U) (b : B)
+  : forall a, aligned_at m x a ->
+    aligned_at (k a) x b -> aligned_at (bind m k) x b.
+Proof.
+  intros. unfold aligned_at; cbn; unfold bind_Lens; cbn.
+  intros s; specialize (H s). subst.
+  destruct (put m x s) as [ [[] ?] | ]; cbn in *; auto.
+  { red in H0. specialize (H0 s0). subst.
+    destruct put as [ [[] ?] | ]; cbn in H0 |- *; subst; auto.
+  }
+Qed.
+
+Lemma aligned_at_ret {S A B} (a : A) (b : B)
+  : aligned_at (S := S) (ret b) a b.
+Proof.
+  cbn; unfold aligned_at, ret_Lens; cbn. auto.
+Qed.
+
+Lemma aligned_at_comap {S U V A} (l : Lens S V A) (f : U -> option V) (u : U) (v : V) (a : A)
+  : aligned_at l v a -> f u = Some v -> aligned_at (comap f l) u a.
+Proof.
+  unfold aligned_at. intros Hl Hf s. specialize (Hl s).
+  cbn; rewrite Hf; cbn. destruct put as [ [[] ?] | ]; cbn in Hl |- *; auto.
+Qed.
+
+Lemma aligned_at_cat {S T U} (lt : Lens S T T) (lu : Lens T U U) (u : U)
+  : aligned_at lu u u -> aligned_at (cat lt lu) u u.
+Proof.
+  unfold aligned_at; cbn.
+  intros Hlu s.
+  destruct get; cbn; [ | auto].
+  specialize (Hlu t).
+  destruct put as [ [[] ?] | ]; cbn; [ | auto].
+  cbn in Hlu; subst.
+  destruct put as [ [[] ?] | ]; cbn; [ | auto].
+  auto.
+Qed.
+
+Definition aligned {S A} (l : Lens S A A) : Prop :=
+  forall a s, exists s' p,
+  put l a s = Some (a, s', p).
+
+Lemma aligned_forward {S A} (l : Lens S A A)
+  : aligned l -> weak_forward l -> forward l.
+Proof.
+  intros Hal Hwf; red; intros * Hget Hput.
+  specialize (Hal a s).
+  destruct Hal as [ ? [? ?] ].
+  rewrite H in Hput; inversion Hput; subst; clear Hput.
+  red in Hwf. specialize Hwf with (1 := Hget) (2 := H). auto.
+Qed.
+
+Definition weak_aligned {S A} (l : Lens S A A) : Prop :=
+  forall a, aligned_at l a a.
+
+Lemma weak_aligned_forward {S A} (l : Lens S A A)
+  : weak_aligned l -> weak_forward l -> forward l.
+Proof.
+  intros Hal Hwf; red; intros * Hget Hput.
+  specialize (Hal a s). rewrite Hput in Hal; cbn in Hal; subst.
+  red in Hwf. specialize Hwf with (1 := Hget) (2 := Hput). auto.
+Qed.
+
+Lemma weak_aligned_backward {S A} (l : Lens S A A)
+  : weak_aligned l -> weak_backward l -> backward l.
+Proof.
+  intros Hal Hwb; red; intros * Hput Hp.
+  specialize (Hal a s). rewrite Hput in Hal; cbn in Hal; subst.
+  red in Hwb. specialize Hwb with (1 := Hput) (2 := Hp). auto.
+Qed.
+
+Lemma weak_aligned_forward_on {S A} (P : A -> Prop) (l : Lens S A A)
+  : (forall a, P a -> aligned_at l a a) -> weak_forward l -> forward_on P l.
+Proof.
+  intros Hal Hwf; red; intros * HP Hget Hput.
+  specialize (Hal a HP s). rewrite Hput in Hal; cbn in Hal; subst.
+  red in Hwf. specialize Hwf with (1 := Hget) (2 := Hput). auto.
+Qed.
+
+Lemma weak_aligned_backward_on {S A} (P : A -> Prop) (l : Lens S A A)
+  : (forall a, P a -> aligned_at l a a) -> weak_backward l -> backward_on P l.
+Proof.
+  intros Hal Hwb; red; intros * HP Hput Hp.
+  specialize (Hal a HP s). rewrite Hput in Hal; cbn in Hal; subst.
+  red in Hwb. specialize Hwb with (1 := Hput) (2 := Hp). auto.
+Qed.
+
+(** [atKeys] *)
+
 Lemma weak_backward_atKey k : weak_backward (atKey k).
 Proof.
   unfold weak_backward; cbn; intros.
@@ -404,50 +523,34 @@ Proof.
     intros; apply ret_comp'.
 Qed.
 
-Definition aligned' {S A B} (l : Lens S A B) (a : A) (ob : option B) : Prop :=
-  forall s,
-    option_map (fun '(b, _, _) => b) (put l a s) = ob.
-
-Lemma aligned_bind {S U A B} (m : Lens S U A) (k : A -> Lens S U B) (x : U) (ob : option B)
-  : forall oa, aligned' m x oa ->
-    (match oa with
-     | None => ob = None
-     | Some a => aligned' (k a) x ob
-     end) -> aligned' (bind m k) x ob.
+Lemma weak_aligned_atKey k : weak_aligned (atKey k).
 Proof.
-  intros. unfold aligned'; cbn; unfold bind_Lens; cbn.
-  intros s; specialize (H s). subst.
-  destruct (put m x s) as [ [[] ?] | ]; cbn in *; auto.
-  { red in H0. specialize (H0 s0).
-    destruct put as [ [[] ?] | ]; [ | cbn in *; auto ].
-    cbn in H0 |- *; subst. reflexivity.
-  }
+  unfold weak_aligned, aligned_at, atKey; cbn; auto.
 Qed.
 
-Definition aligned {S A} (l : Lens S A A) : Prop :=
-  forall a s, exists s' p,
-  put l a s = Some (a, s', p).
-
-Lemma aligned_forward {S A} (l : Lens S A A)
-  : aligned l -> weak_forward l -> forward l.
+Lemma aligned_at_atKeys ks xs : length ks = length xs -> aligned_at (atKeys ks) xs xs.
 Proof.
-  intros Hal Hwf; red; intros * Hget Hput.
-  specialize (Hal a s).
-  destruct Hal as [ ? [? ?] ].
-  rewrite H in Hput; inversion Hput; subst; clear Hput.
-  red in Hwf. specialize Hwf with (1 := Hget) (2 := H). auto.
+  revert xs; induction ks; destruct xs; cbn [length atKeys]; intros Hlen; inversion Hlen.
+  - apply aligned_at_ret.
+  - eapply aligned_at_bind.
+    { eapply aligned_at_comap; [ | reflexivity ]. apply weak_aligned_atKey. }
+    eapply aligned_at_bind.
+    { eapply aligned_at_comap; [ | reflexivity ]. eauto. }
+    apply aligned_at_ret.
 Qed.
 
-Definition weak_aligned {S A} (l : Lens S A A) : Prop :=
-  forall a a' s s' p,
-  put l a s = Some (a', s', p) -> a = a'.
-
-Lemma weak_aligned_forward {S A} (l : Lens S A A)
-  : weak_aligned l -> weak_forward l -> forward l.
+Lemma forward_on_atKeys ks : forward_on (fun xs => length ks = length xs) (atKeys ks).
 Proof.
-  intros Hal Hwf; red; intros * Hget Hput.
-  red in Hal; specialize Hal with (1 := Hput). subst.
-  red in Hwf. specialize Hwf with (1 := Hget) (2 := Hput). auto.
+  apply weak_aligned_forward_on.
+  - apply aligned_at_atKeys.
+  - apply weak_forward_atKeys.
+Qed.
+
+Lemma backward_on_atKeys ks : backward_on (fun xs => length ks = length xs) (atKeys ks).
+Proof.
+  apply weak_aligned_backward_on.
+  - apply aligned_at_atKeys.
+  - apply weak_backward_atKeys.
 Qed.
 
 Lemma eqb_option_true x y : eqb_option Nat.eqb x y = true -> x = y.
@@ -463,10 +566,23 @@ Proof.
   apply eqb_option_true in H0; subst; auto.
 Qed.
 
+Lemma eqb_Tree_eq t t' : eqb_Tree t t' = true -> t = t'.
+Proof.
+  revert t'; induction t; destruct t'; cbn; try discriminate; auto.
+  intros H; apply andb_prop in H. destruct H as [H H'].
+  apply andb_prop in H; destruct H as [H0 H1].
+  apply Nat.eqb_eq in H1.
+  f_equal; auto.
+Qed.
+
 Lemma weak_backward_rightL : weak_backward rightL.
 Proof.
-  unfold weak_backward; cbn [put get rightL].
-Admitted.
+  unfold weak_backward; cbn [put get rightL]; intros *.
+  destruct s; [discriminate | ].
+  intros H; inversion H; clear H; subst.
+  destruct getRight; [ | discriminate ].
+  intros H; apply eqb_Tree_eq in H; f_equal; auto.
+Qed.
 
 Lemma weak_backward_cat {S T U} (u : Lens S T T) (v : Lens T U U)
   : weak_backward u -> weak_backward v -> weak_backward (cat u v).
@@ -489,6 +605,11 @@ Proof.
   destruct s; reflexivity.
 Qed.
 
+Lemma weak_aligned_rootL : weak_aligned rootL.
+Proof.
+  red; intros ? []; cbn; auto.
+Qed.
+
 Lemma weak_forward_rightL : weak_forward rightL.
 Proof.
   unfold weak_forward; cbn [put get rightL]. intros * H1 H2.
@@ -498,7 +619,7 @@ Qed.
 
 Lemma weak_aligned_rightL : weak_aligned rightL.
 Proof.
-  red; intros ? ? []; cbn; [ discriminate | ]; congruence.
+  red; intros ? []; cbn; auto.
 Qed.
 
 Lemma forward_rightL : forward rightL.
@@ -518,6 +639,21 @@ Proof.
   inversion H2; subst; clear H2.
   red in Hv; specialize Hv with (1 := H1) (2 := Hput); subst.
   red in Hu; specialize Hu with (1 := Hget) (2 := Hput2). auto.
+Qed.
+
+Lemma weak_backward_spineL n : weak_backward (spineL n).
+Proof.
+  induction n; cbn [spineL].
+  - red; cbn; congruence.
+  - apply bind_comp.
+    { apply comap_comp, weak_backward_rootL. }
+    { intros [].
+      + apply bind_comp.
+        { apply comap_comp, weak_backward_cat.
+          * apply weak_backward_rightL.
+          * apply IHn. }
+        { intros; apply ret_comp. }
+      + apply ret_comp. }
 Qed.
 
 Lemma weak_forward_spineL n : weak_forward (spineL n).
@@ -540,11 +676,30 @@ Proof.
       + apply ret_comp'. }
 Qed.
 
-Lemma put_bind {L U A B} (m : Lens L U A) (k : A -> Lens L U B)
-  : put (bind m k) a s = bind_option (put m a s) (fun
-
 Lemma weak_aligned_spineL n : weak_aligned (spineL n).
 Proof.
-  induction n; cbn [spineL].
-  - red; cbn; intros [] []; reflexivity.
-  - red. intros.
+  red; induction n; cbn [spineL]; intros xs.
+  - destruct xs. apply aligned_at_ret.
+  - apply aligned_at_bind with (a := bhead xs).
+    { eapply aligned_at_comap; [ | reflexivity ]. apply weak_aligned_rootL. }
+    destruct xs as [ [x xs'] | ] eqn:Hxs; cbn [bhead].
+    + eapply aligned_at_bind.
+      { eapply aligned_at_comap; [ | reflexivity ].
+        apply aligned_at_cat. auto. }
+      apply aligned_at_ret.
+    + apply aligned_at_ret.
+Qed.
+
+Theorem forward_spineL n : forward (spineL n).
+Proof.
+  apply weak_aligned_forward.
+  - apply weak_aligned_spineL.
+  - apply weak_forward_spineL.
+Qed.
+
+Lemma backward_spineL n : backward (spineL n).
+Proof.
+  apply weak_aligned_backward.
+  - apply weak_aligned_spineL.
+  - apply weak_backward_spineL.
+Qed.
