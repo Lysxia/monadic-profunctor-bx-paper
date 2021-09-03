@@ -631,6 +631,18 @@ Class Quasicompositional
         R V A m -> R U A (comap f m)
   }.
 
+Lemma bind_comap_comp' {P} {R : forall A B, P A B -> Prop}
+    `{Quasicompositional P R}
+  : forall A B (m : P A A) (k : A -> P B B) (f : B -> option A),
+      (forall a, (x <- k a;; ret (f x)) = (x <- k a;; ret (Some a))) ->
+      R A A m ->
+      (forall a, R B B (k a)) ->
+      R B B (bind (comap f m) k).
+Proof.
+  intros. apply bind_comp' with (f0 := f); auto.
+  apply comap_comp'; auto.
+Qed.
+
 Instance Quasicompositional_Compositional {P} (R : forall A B, P A B -> Prop) `{Compositional P R}
   : Quasicompositional R.
 Proof.
