@@ -639,7 +639,7 @@ Lemma bind_comap_comp' {P} {R : forall A B, P A B -> Prop}
       (forall a, R B B (k a)) ->
       R B B (bind (comap f m) k).
 Proof.
-  intros. apply bind_comp' with (f0 := f); auto.
+  intros. apply (bind_comp' _ _ _ _ _ f); auto.
   apply comap_comp'; auto.
 Qed.
 

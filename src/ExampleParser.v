@@ -15,7 +15,7 @@ Generalizable Variables P.
 (* begin hide *)
 From Coq Require Import
   FunctionalExtensionality
-  PeanoNat
+  Arith
   List.
 Import ListNotations.
 
@@ -41,28 +41,38 @@ Arguments biparse_token {P _}.
 
 (** ** Example biparsers *)
 
-(** Get a single [nat] token less than b. *)
-Definition biparse_digit `{Biparser P} (b : nat) : P nat nat :=
-  x <- biparse_token ;;
-  if Nat.leb b x then
-    empty
-  else
-    ret x.
+Definition digit (b : nat) : Type := { n | n < b }.
 
-(** Parse a k-digit number in base b *)
+Definition to_digit {b} (n : nat) (H : n < b) : digit b := exist _ n H.
+
+Definition modulo_d (z : nat) (b : nat) : digit (S b).
+Proof.
+  apply (exist _ (Nat.modulo z (S b))).
+  apply Nat.mod_upper_bound. discriminate.
+Defined.
+
+(** Get a single [nat] token less than b. *)
+Definition biparse_digit `{Biparser P} (b : nat) : P (digit b) (digit b) :=
+  x <-( fun d => proj1_sig d ) biparse_token ;;
+  match lt_dec x b with
+  | left Hlt => ret (to_digit x Hlt)
+  | right _ => empty
+  end.
+
+(** Parse a k-digit number in base (S b) *)
 Fixpoint biparse_nat `{Biparser P} (b : nat) (k : nat)
   : P nat nat :=
   match k with
   | O => ret 0
   | S k' =>
-    x <-( fun z => Nat.div z b ) biparse_nat b k';;
-    y <-( fun z => Nat.modulo z b ) biparse_digit b ;;
-    ret (b * x + y)
+    x <-( fun z => Nat.div z (S b) ) biparse_nat b k';;
+    y <-( fun z => modulo_d z b ) biparse_digit (S b) ;;
+    ret (S b * x + proj1_sig y)
   end.
 
 (** Parse a length n followed by a list of nat-tokens ("string"). *)
 Definition biparse_string `{Biparser P} : P (list nat) (list nat) :=
-  n <-( @length _ ) biparse_nat 10 3;;
+  n <-( @length _ ) biparse_nat 9 3;;
   replicate n biparse_token.
 
 (** ** Instances *)
@@ -468,18 +478,24 @@ Qed.
 
 Lemma weak_forward_digit {b} : weak_forward (biparse_digit b).
 Proof.
-  unfold biparse_digit, weak_forward.
-Abort.
+  unfold biparse_digit; intros.
+  apply bind_comap_comp'.
+  { intros a; destruct lt_dec; cbn; reflexivity. }
+  { apply weak_forward_token. }
+  { intros a; destruct lt_dec.
+    - apply weak_forward_ret.
+    - apply weak_forward_empty. }
+Qed.
 
 Lemma weak_backward_digit {b} : weak_backward (biparse_digit b).
 Proof.
   unfold biparse_digit.
   apply bind_comp.
-  - apply weak_backward_token.
+  - apply comap_comp. apply weak_backward_token.
   - intros a.
-    destruct (Nat.leb_spec b a).
-    + apply weak_backward_empty.
+    destruct (lt_dec a b).
     + apply weak_backward_ret.
+    + apply weak_backward_empty.
 Qed.
 
 Lemma weak_backward_replicate {A} {n} {p : biparser A A}
@@ -496,17 +512,29 @@ Proof.
   apply replicate_comp; typeclasses eauto.
 Qed.
 
+Lemma digit_unique {b} (d1 d2 : digit b) : proj1_sig d1 = proj1_sig d2 -> d1 = d2.
+Proof.
+  destruct d1, d2; cbn; intros <-.
+  f_equal. apply le_unique.
+Qed.
+
 Lemma weak_forward_nat b k : weak_forward (biparse_nat b k).
 Proof.
   induction k; cbn [biparse_nat].
   - apply ret_comp'.
   - apply bind_comap_comp'.
-    { admit. }
+    { intros. rewrite 2 bind_bind. f_equal; apply functional_extensionality; intros ?.
+      rewrite 2 ret_bind. f_equal. f_equal.
+      symmetry. apply Nat.div_unique with (r := proj1_sig x); [ apply proj2_sig | reflexivity ]. }
     { auto. }
     intros; apply bind_comap_comp'.
     { intros; rewrite 2 ret_bind.
-
-Admitted.
+      f_equal. f_equal.
+      apply digit_unique. cbn [proj1_sig modulo_d].
+      symmetry; apply Nat.mod_unique with (q := a); [ apply proj2_sig | reflexivity ]. }
+    { apply weak_forward_digit. }
+    intros; apply weak_forward_ret.
+Qed.
 
 Lemma fmap_fmap_ {M} `{MonadLaws M} A B C (u : M A) (f : A -> B) (g : B -> C)
   : (u >>= fun x => ret (g (f x))) = ((u >>= fun x => ret (f x)) >>= fun y => ret (g y)).
