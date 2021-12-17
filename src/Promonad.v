@@ -252,6 +252,7 @@ Class PromonadLaws (P : Type -> Type -> Type)
       {Promonad_P : Promonad P} :=
   { asMonadLaws : forall U, MonadLaws (P U)
   ; asPartialProfunctorLaws : PartialProfunctorLaws P
+  ; map_dimap : forall U A B (f : A -> B) (u : P U A), map f u = dimap id f u
   ; comap_morphism : forall U V (f : U -> V),
       MonadMorphism (fun A => comap (fun u => Some (f u)));
   }.
@@ -263,7 +264,7 @@ Existing Instance asPartialProfunctorLaws.
 
 (** *** Derived laws *)
 
-Lemma comap_morph_ret P `{PromonadLaws P} U V A
+Lemma comap_morph_ret {P} `{PromonadLaws P} U V A
       (f : U -> V) (a : A) :
   comap (fun u => Some (f u)) (ret a) = ret a.
 Proof.
@@ -275,13 +276,26 @@ Proof.
   apply morph_ret.
 Qed.
 
-Lemma comap_morph_bind P `{PromonadLaws P} U V A B
+Lemma comap_morph_bind {P} `{PromonadLaws P} U V A B
       (f : V -> U) (m : P U A) (k : A -> P U B) :
   let h A := comap (fun u => Some (f u)) : P U A -> P V A in
   h B (bind m k)
   = bind (h A m) (fun a => h B (k a)).
 Proof.
   apply morph_bind.
+Qed.
+
+Lemma natural_comap {P} `{PromonadLaws P} U U' A B
+    (f : U -> option U') (u : P U' A) (k : A -> B)
+  : comap f (bind u (fun x => ret (k x))) = bind (comap f u) (fun x => ret (k x)).
+Proof.
+  do 2 change (bind ?u _) with (map k u).
+  rewrite 2 map_dimap.
+  unfold comap. rewrite toFailureP_dimap.
+  do 2 change (dimap ?f ?f' (?g ?x)) with (compose (dimap f f') g x).
+  rewrite 2 dimap_compose. f_equal.
+  apply functional_extensionality; intros x; unfold compose, id.
+  destruct (f x); reflexivity.
 Qed.
 
 (** ** Promonad morphisms *)
@@ -358,6 +372,7 @@ Proof.
   constructor.
   - exact (MonadLaws_Fwd M).
   - exact (PartialProfunctorLaws_Fwd M).
+  - reflexivity.
   - constructor.
     + intros A a.
       cbv [comap dimap asProfunctor asPartialProfunctor Promonad_Fwd PartialProfunctor_Fwd Profunctor_Fwd toFailureP map].
@@ -450,6 +465,7 @@ Proof.
   constructor.
   - exact (MonadLaws_Bwd _).
   - exact (PartialProfunctorLaws_Bwd _).
+  - reflexivity.
   - constructor.
     + intros; cbn. cbv [Profunctor_Bwd].
       apply functional_extensionality; intros u.
@@ -546,6 +562,8 @@ Proof.
   constructor.
   - exact (fun U => MonadLaws_Product P1 P2 U).
   - exact (PartialProfunctorLaws_Product P1 P2).
+  - unfold map, dimap, asProfunctor, asPartialProfunctor, Promonad_Product, PartialProfunctor_Product, Profunctor_Product; cbn.
+    intros; f_equal; apply map_dimap.
   - constructor.
     + intros; cbn. cbv [Profunctor_Product].
       f_equal; apply comap_morph_ret + apply comap_morph_bind; auto.

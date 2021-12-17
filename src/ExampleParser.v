@@ -557,16 +557,7 @@ Proof.
     destruct (snd u u0) as [ [] | ]; cbn; auto.
 Qed.
 
-Class PLaw' P `{Biparser P} : Prop :=
-  plaw' : forall U U' A B (f : U -> option U') (u : P U' A) (k : A -> B),
-    comap f (bind u (fun x => ret (k x))) = bind (comap f u) (fun x => ret (k x)).
-
-Instance PLaw'_biparser : PLaw' (Product parser2 printer2).
-Proof.
-  exact @comap_bind_morph'.
-Qed.
-
-Lemma replicate_length {P} `{Biparser P} `{PLaw' P} {PL : PromonadLaws P} (n : nat)
+Lemma replicate_length {P} `{Biparser P} {PL : PromonadLaws P} (n : nat)
   : replicate (P := P) n biparse_token >>= (fun x : list t => ret (List.length x))
   = replicate n biparse_token >>= (fun _ : list t => ret n).
 Proof.
@@ -575,13 +566,13 @@ Proof.
   - rewrite !bind_bind. f_equal. apply functional_extensionality. intros x.
     rewrite !bind_bind.
     transitivity (comap (P := P) tail (replicate n biparse_token >>= fun x => ret (length x)) >>= fun n => ret (S n)).
-    + rewrite plaw'. rewrite !bind_bind. f_equal; apply functional_extensionality; intros xs.
+    + rewrite natural_comap. rewrite !bind_bind. f_equal; apply functional_extensionality; intros xs.
       rewrite 2 ret_bind. reflexivity.
-    + rewrite IHn. rewrite plaw', !bind_bind. f_equal; apply functional_extensionality; intros xs.
+    + rewrite IHn. rewrite natural_comap, !bind_bind. f_equal; apply functional_extensionality; intros xs.
       rewrite 2 ret_bind. reflexivity.
 Qed.
 
-Lemma replicate_length_ {P} `{Biparser P} {PL : PromonadLaws P} `{!PLaw' P} (n : nat)
+Lemma replicate_length_ {P} `{Biparser P} {PL : PromonadLaws P} (n : nat)
   : replicate (P := P) n biparse_token >>= (fun x : list t => ret (Some (List.length x)))
   = replicate n biparse_token >>= (fun _ : list t => ret (Some n)).
 Proof.
