@@ -267,9 +267,20 @@ Proof.
       destruct put as [ [[] ? ] | ]; cbn; reflexivity.
 Qed.
 
+Lemma map_dimap_Lens {S U A B} (f : A -> B) (u : Lens S U A)
+  : map f u = dimap id f u.
+Proof.
+  cbn. unfold bind_Lens, Profunctor_Lens. f_equal; apply functional_extensionality; intros ?.
+  apply functional_extensionality; intros ?.
+  cbn. destruct put as [ [ [] ] | ]; cbn; auto.
+  unfold map1_triple; cbn. f_equal. f_equal.
+  apply functional_extensionality; intros ?.
+  apply Bool.andb_true_r.
+Qed.
+
 Instance ProfmonadLaws_Lens {S} : ProfmonadLaws (Lens S).
 Proof.
-  constructor; cbn; typeclasses eauto.
+  constructor; typeclasses eauto + apply @map_dimap_Lens.
 Qed.
 
 Definition backward {S A} (l : Lens S A A) : Prop :=
