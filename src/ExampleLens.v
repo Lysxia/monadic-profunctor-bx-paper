@@ -12,9 +12,9 @@ From Coq Require Import
   List.
 Import ListNotations.
 
-From Promonad Require Import
+From Profmonad Require Import
   Utils
-  Promonad.
+  Profmonad.
 
 Record Lens (S U A : Type) : Type := {
   get : S -> option A;
@@ -41,8 +41,8 @@ Definition ret_Lens {S U A : Type} (a : A) : Lens S U A := {|
 |}.
 
 Definition Monad_Lens S U : Monad (Lens S U) := {|
-  Promonad.bind _ _ := bind_Lens;
-  Promonad.ret _ := ret_Lens;
+  Profmonad.bind _ _ := bind_Lens;
+  Profmonad.ret _ := ret_Lens;
 |}.
 
 Definition map1_triple {a a' b c} (f : a -> a') (x : a * b * c) : a' * b * c :=
@@ -62,7 +62,7 @@ Definition PartialProfunctor_Lens S : PartialProfunctor (Lens S) := {|
     |}
 |}.
 
-Instance Promonad_Lens S : Promonad (Lens S).
+Instance Profmonad_Lens S : Profmonad (Lens S).
 Proof.
   constructor; eauto using Monad_Lens, PartialProfunctor_Lens.
 Defined.
@@ -267,7 +267,7 @@ Proof.
       destruct put as [ [[] ? ] | ]; cbn; reflexivity.
 Qed.
 
-Instance PromonadLaws_Lens {S} : PromonadLaws (Lens S).
+Instance ProfmonadLaws_Lens {S} : ProfmonadLaws (Lens S).
 Proof.
   constructor; cbn; typeclasses eauto.
 Qed.

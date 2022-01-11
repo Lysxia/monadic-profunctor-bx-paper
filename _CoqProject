@@ -1,6 +1,6 @@
--Q src Promonad
+-Q src Profmonad
 src/Utils.v
-src/Promonad.v
+src/Profmonad.v
 src/ExampleParser.v
 src/ExampleLens.v
 src/ExampleGenerator.v

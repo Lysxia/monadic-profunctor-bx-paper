@@ -19,8 +19,8 @@ From Coq Require Import
   List.
 Import ListNotations.
 
-From Promonad Require Import
-  Promonad
+From Profmonad Require Import
+  Profmonad
   Utils.
 (* end hide *)
 
@@ -32,7 +32,7 @@ Definition t : Type := nat.
 (** Parse a token using [biparse_token].
   More complex biparsers are defined using promonadic operations. *)
 Class Biparser (P : Type -> Type -> Type) :=
-  { Biparser_Promonad :> Promonad P;
+  { Biparser_Profmonad :> Profmonad P;
     Biparser_Partial :> forall U, MonadPartial (P U);
     biparse_token : P t t;
   }.
@@ -129,7 +129,7 @@ Instance MonadPartial_parser : MonadPartial parser :=
 
 Definition parser2 := Fwd parser.
 
-Definition Promonad_parser2 := Promonad_Fwd parser.
+Definition Profmonad_parser2 := Profmonad_Fwd parser.
 
 Instance Biparser_parser2 : Biparser parser2 :=
   { biparse_token s :=
@@ -557,7 +557,7 @@ Proof.
     destruct (snd u u0) as [ [] | ]; cbn; auto.
 Qed.
 
-Lemma replicate_length {P} `{Biparser P} {PL : PromonadLaws P} (n : nat)
+Lemma replicate_length {P} `{Biparser P} {PL : ProfmonadLaws P} (n : nat)
   : replicate (P := P) n biparse_token >>= (fun x : list t => ret (List.length x))
   = replicate n biparse_token >>= (fun _ : list t => ret n).
 Proof.
@@ -572,7 +572,7 @@ Proof.
       rewrite 2 ret_bind. reflexivity.
 Qed.
 
-Lemma replicate_length_ {P} `{Biparser P} {PL : PromonadLaws P} (n : nat)
+Lemma replicate_length_ {P} `{Biparser P} {PL : ProfmonadLaws P} (n : nat)
   : replicate (P := P) n biparse_token >>= (fun x : list t => ret (Some (List.length x)))
   = replicate n biparse_token >>= (fun _ : list t => ret (Some n)).
 Proof.

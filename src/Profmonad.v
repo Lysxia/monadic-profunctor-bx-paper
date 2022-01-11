@@ -1,4 +1,4 @@
-(** * Promonads *)
+(** * Profmonads *)
 
 (** Some naming conventions:
   - [M]: a monad
@@ -19,7 +19,7 @@ From Coq Require Import
   List.
 Import ListNotations.
 
-From Promonad Require Import
+From Profmonad Require Import
   Utils.
 (* end hide *)
 
@@ -218,14 +218,14 @@ Class PartialProfunctorLaws (P : Type -> Type -> Type) {PartialProfunctor_P : Pa
   }.
 
 
-(** ** Promonads *)
+(** ** Profmonads *)
 
 (** *** Operations *)
 
 (** ("Profmonad" in the paper) *)
 (** A promonad is a partial profunctor that's also a monad in its second
   argument. *)
-Class Promonad (P : Type -> Type -> Type) :=
+Class Profmonad (P : Type -> Type -> Type) :=
   { asMonad :> forall U, Monad (P U)
   ; asPartialProfunctor :> PartialProfunctor P
   }.
@@ -248,8 +248,8 @@ Notation "x <-( f ) m ;; m2" :=
 
 (** *** Laws *)
 
-Class PromonadLaws (P : Type -> Type -> Type)
-      {Promonad_P : Promonad P} :=
+Class ProfmonadLaws (P : Type -> Type -> Type)
+      {Profmonad_P : Profmonad P} :=
   { asMonadLaws : forall U, MonadLaws (P U)
   ; asPartialProfunctorLaws : PartialProfunctorLaws P
   ; map_dimap : forall U A B (f : A -> B) (u : P U A), map f u = dimap id f u
@@ -264,7 +264,7 @@ Existing Instance asPartialProfunctorLaws.
 
 (** *** Derived laws *)
 
-Lemma comap_morph_ret {P} `{PromonadLaws P} U V A
+Lemma comap_morph_ret {P} `{ProfmonadLaws P} U V A
       (f : U -> V) (a : A) :
   comap (fun u => Some (f u)) (ret a) = ret a.
 Proof.
@@ -276,7 +276,7 @@ Proof.
   apply morph_ret.
 Qed.
 
-Lemma comap_morph_bind {P} `{PromonadLaws P} U V A B
+Lemma comap_morph_bind {P} `{ProfmonadLaws P} U V A B
       (f : V -> U) (m : P U A) (k : A -> P U B) :
   let h A := comap (fun u => Some (f u)) : P U A -> P V A in
   h B (bind m k)
@@ -285,7 +285,7 @@ Proof.
   apply morph_bind.
 Qed.
 
-Lemma natural_comap {P} `{PromonadLaws P} U U' A B
+Lemma natural_comap {P} `{ProfmonadLaws P} U U' A B
     (f : U -> option U') (u : P U' A) (k : A -> B)
   : comap f (bind u (fun x => ret (k x))) = bind (comap f u) (fun x => ret (k x)).
 Proof.
@@ -298,12 +298,12 @@ Proof.
   destruct (f x); reflexivity.
 Qed.
 
-(** ** Promonad morphisms *)
+(** ** Profmonad morphisms *)
 
 (** *** Laws *)
 
-Class PromonadMorphism {P Q : TyCon2}
-      `{Promonad P} `{Promonad Q}
+Class ProfmonadMorphism {P Q : TyCon2}
+      `{Profmonad P} `{Profmonad Q}
       (phi : forall U V, P U V -> Q U V) : Prop := {
     asMonadMorphism :> forall U, MonadMorphism (phi U);
     morph_comap : forall U U' V (f : U -> option U') (m : P U' V),
@@ -350,9 +350,9 @@ Instance PartialProfunctor_Fwd (M : Type -> Type) `{Monad M} :
   PartialProfunctor (Fwd M) :=
   {| toFailureP := fun _ _ m => m |}.
 
-Instance Promonad_Fwd (M : Type -> Type) `{Monad M} :
-  Promonad (Fwd M) :=
-  Build_Promonad _ _ _.
+Instance Profmonad_Fwd (M : Type -> Type) `{Monad M} :
+  Profmonad (Fwd M) :=
+  Build_Profmonad _ _ _.
 
 Instance PartialProfunctorLaws_Fwd (M : Type -> Type) `{MonadLaws M} : PartialProfunctorLaws (Fwd M).
 Proof.
@@ -366,8 +366,8 @@ Proof.
   - intros. reflexivity.
 Qed.
 
-Instance PromonadLaws_Fwd (M : Type -> Type) `{MonadLaws M} :
-  PromonadLaws (Fwd M).
+Instance ProfmonadLaws_Fwd (M : Type -> Type) `{MonadLaws M} :
+  ProfmonadLaws (Fwd M).
 Proof.
   constructor.
   - exact (MonadLaws_Fwd M).
@@ -375,11 +375,11 @@ Proof.
   - reflexivity.
   - constructor.
     + intros A a.
-      cbv [comap dimap asProfunctor asPartialProfunctor Promonad_Fwd PartialProfunctor_Fwd Profunctor_Fwd toFailureP map].
+      cbv [comap dimap asProfunctor asPartialProfunctor Profmonad_Fwd PartialProfunctor_Fwd Profunctor_Fwd toFailureP map].
       rewrite ret_bind.
       reflexivity.
     + intros.
-      cbv [comap dimap asProfunctor asPartialProfunctor Promonad_Fwd PartialProfunctor_Fwd Profunctor_Fwd toFailureP map].
+      cbv [comap dimap asProfunctor asPartialProfunctor Profmonad_Fwd PartialProfunctor_Fwd Profunctor_Fwd toFailureP map].
       rewrite bind_bind.
       f_equal.
       rewrite bind_ret.
@@ -437,9 +437,9 @@ Instance PartialProfunctor_Bwd M `{MonadPartial M} :
        end
   |}.
 
-Instance Promonad_Bwd (M : Type -> Type) `{MonadPartial M} :
-  Promonad (Bwd M) :=
-  Build_Promonad _ _ _.
+Instance Profmonad_Bwd (M : Type -> Type) `{MonadPartial M} :
+  Profmonad (Bwd M) :=
+  Build_Profmonad _ _ _.
 
 Instance PartialProfunctorLaws_Bwd M `{MonadPartialLaws M} :
   PartialProfunctorLaws (Bwd M).
@@ -459,8 +459,8 @@ Proof.
     + rewrite map_empty; reflexivity.
 Qed.
 
-Instance PromonadLaws_Bwd (M : Type -> Type) `{MonadPartialLaws M} :
-  PromonadLaws (Bwd M).
+Instance ProfmonadLaws_Bwd (M : Type -> Type) `{MonadPartialLaws M} :
+  ProfmonadLaws (Bwd M).
 Proof.
   constructor.
   - exact (MonadLaws_Bwd _).
@@ -528,12 +528,12 @@ Instance PartialProfunctor_Product P1 P2 `{PartialProfunctor P1} `{PartialProfun
   {| asProfunctor := Profunctor_Product P1 P2
    ; toFailureP := fun A B u => (toFailureP (fst u), toFailureP (snd u)) |}.
 
-Instance Promonad_Product P1 P2
-         `{Promonad P1, Promonad P2} :
-  Promonad (Product P1 P2) :=
-  Build_Promonad _ _ _.
+Instance Profmonad_Product P1 P2
+         `{Profmonad P1, Profmonad P2} :
+  Profmonad (Product P1 P2) :=
+  Build_Profmonad _ _ _.
 
-Lemma comap_as_morph P `{Promonad P} U V A f :
+Lemma comap_as_morph P `{Profmonad P} U V A f :
   comap f = (fun A => @comap P _ U V A f) A.
 Proof. auto. Qed.
 
@@ -555,14 +555,14 @@ Proof.
     f_equal; rewrite toFailureP_dimap; reflexivity.
 Qed.
 
-Instance LawfulPromonad_Product P1 P2
-         `{PromonadLaws P1, PromonadLaws P2} :
-  PromonadLaws (Product P1 P2).
+Instance LawfulProfmonad_Product P1 P2
+         `{ProfmonadLaws P1, ProfmonadLaws P2} :
+  ProfmonadLaws (Product P1 P2).
 Proof.
   constructor.
   - exact (fun U => MonadLaws_Product P1 P2 U).
   - exact (PartialProfunctorLaws_Product P1 P2).
-  - unfold map, dimap, asProfunctor, asPartialProfunctor, Promonad_Product, PartialProfunctor_Product, Profunctor_Product; cbn.
+  - unfold map, dimap, asProfunctor, asPartialProfunctor, Profmonad_Product, PartialProfunctor_Product, Profunctor_Product; cbn.
     intros; f_equal; apply map_dimap.
   - constructor.
     + intros; cbn. cbv [Profunctor_Product].
@@ -576,7 +576,7 @@ Qed.
 
 (* Common combinators *)
 
-Fixpoint replicate `{Promonad P} {U A} (n : nat) (m : P U A)
+Fixpoint replicate `{Profmonad P} {U A} (n : nat) (m : P U A)
   : P (list U) (list A) :=
   match n with
   | O => ret []
@@ -605,17 +605,17 @@ Instance Profunctor_pfunction : Profunctor pfunction :=
 Instance PartialProfunctor_pfunction : PartialProfunctor pfunction :=
   {| toFailureP := fun U A (u : pfunction U A) (x : option U) => bind_option x u |}.
 
-Instance Promonad_pfunction : Promonad pfunction :=
-  Build_Promonad _ _ _.
+Instance Profmonad_pfunction : Profmonad pfunction :=
+  Build_Profmonad _ _ _.
 
 (*** Compositionality ***)
 
 Class Compositional
       {P : Type -> Type -> Type}
-      `{Promonad P}
+      `{Profmonad P}
       (R : forall A B, P A B -> Prop) : Prop :=
   {
-    CompositionalWithLawful :> PromonadLaws _;
+    CompositionalWithLawful :> ProfmonadLaws _;
     ret_comp :
       forall U A (a : A), R U A (ret a : P U A);
     bind_comp :
@@ -633,7 +633,7 @@ Class Compositional
 
 Class Quasicompositional
       {P : Type -> Type -> Type}
-      `{Promonad P}
+      `{Profmonad P}
       (R : forall A B, P A B -> Prop) : Prop :=
   {
     ret_comp' :
@@ -726,7 +726,7 @@ Qed.
 (* replicate preserves quasicompositional properties *)
 Lemma replicate_comp P
       (R : forall U A, P U A -> Prop)
-      `{PromonadLaws P}
+      `{ProfmonadLaws P}
       `{@Quasicompositional P _ R}
       U A (n : nat) (m : P U A)
   : R _ _ m ->
@@ -785,9 +785,9 @@ Proof.
 Qed.
 
 Lemma purify_replicate P
-      `{Promonad P}
+      `{Profmonad P}
       (phi : forall U A, P U A -> pfunction U A) (* promonad morphism *)
-      `{@PromonadMorphism _ _ _ _ phi}
+      `{@ProfmonadMorphism _ _ _ _ phi}
       U A (n : nat) (m : P U A) (xs : list U) :
   length xs = n ->
   phi _ _ (replicate n m) xs = traverse_option (phi _ _ m) xs.
@@ -796,12 +796,12 @@ Proof.
   - simpl; rewrite morph_ret; auto.
   - cbn [length replicate traverse_option].
     rewrite morph_bind, morph_comap.
-    cbn [ bind asMonad Promonad_pfunction Monad_pfunction ].
+    cbn [ bind asMonad Profmonad_pfunction Monad_pfunction ].
     rewrite comap_apply. cbn [head bind_option].
     apply f_equal.
     apply functional_extensionality. intro y.
     rewrite morph_bind, morph_comap.
-    cbn [ bind asMonad Promonad_pfunction Monad_pfunction ].
+    cbn [ bind asMonad Profmonad_pfunction Monad_pfunction ].
     rewrite comap_apply. cbn [tail bind_option].
     rewrite IHxs.
     f_equal. apply functional_extensionality. intro ys.

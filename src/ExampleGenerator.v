@@ -3,8 +3,8 @@ From Coq Require Import
   List
   Lia.
 Import ListNotations.
-From Promonad Require Import
-  Promonad.
+From Profmonad Require Import
+  Profmonad.
 
 Set Implicit Arguments.
 Set Contextual Implicit.
@@ -31,12 +31,12 @@ Definition pred (A : Type) : Type := A -> bool.
 Definition bigen : Type -> Type -> Type :=
   Product (Fwd gen) (Bwd option).
 
-Instance PromonadLaws_bigen : PromonadLaws bigen.
+Instance ProfmonadLaws_bigen : ProfmonadLaws bigen.
 Proof.
-  apply LawfulPromonad_Product.
-  - apply PromonadLaws_Fwd.
+  apply LawfulProfmonad_Product.
+  - apply ProfmonadLaws_Fwd.
     apply MonadLaws_gen.
-  - exact (PromonadLaws_Bwd option).
+  - exact (ProfmonadLaws_Bwd option).
 Qed.
 
 Definition run_gen {A B : Type} (g : bigen A B) : gen B :=

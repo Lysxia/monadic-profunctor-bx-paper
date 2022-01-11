@@ -14,7 +14,7 @@ $(MFCOQ): _CoqProject
 	coq_makefile -f _CoqProject -o $@
 
 ## coqdoc
-TITLE:="Promonads"
+TITLE:="Profmonads"
 COQDOCFLAGS:= \
   -t $(TITLE) \
   --toc --toc-depth 2 --html --interpolate \
