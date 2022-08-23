@@ -34,6 +34,8 @@ Class Monad (M : Type -> Type) :=
     bind : forall A B, M A -> (A -> M B) -> M B;
   }.
 
+#[global] Hint Mode Monad ! .
+
 Arguments ret {M _ A}.
 Arguments bind {M _ A B}.
 
@@ -806,4 +808,18 @@ Proof.
     rewrite IHxs.
     f_equal. apply functional_extensionality. intro ys.
     rewrite morph_ret; auto.
+Qed.
+
+Instance Monad_list : Monad list :=
+  {| ret := fun A x => x :: nil
+  ;  bind := fun A B xs k => List.flat_map k xs
+  |}.
+
+Instance MonadLaws_list : MonadLaws list.
+Proof.
+  constructor; cbn; intros.
+  - induction m; cbn; f_equal; auto.
+  - apply app_nil_r.
+  - induction m; cbn; f_equal; auto.
+    rewrite flat_map_app; f_equal; auto.
 Qed.

@@ -4,3 +4,4 @@ src/Profmonad.v
 src/ExampleParser.v
 src/ExampleLens.v
 src/ExampleGenerator.v
+src/ExampleLogic.v

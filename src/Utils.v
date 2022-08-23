@@ -50,3 +50,9 @@ Qed.
 (** Extend a total function to a partial one. *)
 Definition total {A B} (f : A -> B) : A -> option B :=
   fun a => Some (f a).
+
+Definition isSome {A} (x : option A) : bool :=
+  match x with
+  | Some _ => true
+  | None => false
+  end.
