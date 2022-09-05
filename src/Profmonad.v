@@ -232,11 +232,9 @@ Class Profmonad (P : Type -> Type -> Type) :=
   ; asPartialProfunctor :> PartialProfunctor P
   }.
 
-Definition comap P `{PartialProfunctor P} (U V A : Type)
+Definition comap {P} `{PartialProfunctor P} {U V A : Type}
   (f : U -> option V) (u : P V A) : P U A :=
   dimap f (fun x => x) (toFailureP u).
-
-Arguments comap {P _ U V A} f.
 
 Notation "x <-( f ?) m ;; m2" := (x <- comap f m ;; m2)
 (at level 90, right associativity).
