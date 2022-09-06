@@ -3,6 +3,7 @@ From Profmonad Require Import Utils Profmonad.
 Import ListNotations.
 Set Implicit Arguments.
 Set Contextual Implicit.
+Set Maximal Implicit Insertion.
 
 Definition GG m := Product (Fwd m) (Bwd option).
 
@@ -20,6 +21,10 @@ Class MonadPlus (m : Type -> Type) : Type :=
   }.
 #[global] Existing Instance Monad_MonadPlus.
 
+#[global] Instance MonadPlus_Bwd {m} `{MonadPlus m} {a} : MonadPlus (Bwd m a) :=
+  { mzero := fun _ _ => mzero
+  ; mplus := fun _ l r x => mplus (l x) (r x) }.
+
 #[global]
 Instance MonadPlus_list : MonadPlus list :=
   {| mzero := fun _ => nil
@@ -29,14 +34,14 @@ Instance MonadPlus_list : MonadPlus list :=
 Definition trueOrFalse {m} `{MonadPlus m} : GG m bool bool :=
   mkGG (mplus (ret true) (ret false)) (fun _ => Some true). (* TODO: shouldn't this be (fun x => Some x) *)
 
-Definition singleton {a} (xs : list a) : option a :=
+Definition from_singleton {a} (xs : list a) : option a :=
   match xs with
   | x :: nil => Some x
   | _ => None
   end.
 
 Definition oneBool {m} `{MonadPlus m} : GG m (list bool) (list bool) :=
-  b <-( singleton ?) trueOrFalse ;;
+  b <-( from_singleton ?) trueOrFalse ;;
   ret (b :: nil).
 
 Definition reject {m} `{MonadPlus m} {a} : GG m a a :=
@@ -121,18 +126,20 @@ Section RMonad.
 
 Context (C : Type -> Type).
 
+Class K a := k : C a.
+
 Class RMonad (m : Type -> Type) : Type :=
-  { rret : forall {a} {Ca : C a}, a -> m a
-  ; rbind : forall {a b} {Ca : C a} {Cb : C b}, m a -> (a -> m b) -> m b
+  { rret : forall {a} {Ca : K a}, a -> m a
+  ; rbind : forall {a b} {Ca : K a} {Cb : K b}, m a -> (a -> m b) -> m b
   }.
 
 Class RProfunctor (p : Type -> Type -> Type) : Type :=
-  { rdimap : forall {a a' b b'} {Cb : C b} {Cb' : C b'}, (a' -> a) -> (b -> b') -> p a b -> p a' b'
+  { rdimap : forall {a a' b b'} {Cb : K b} {Cb' : K b'}, (a' -> a) -> (b -> b') -> p a b -> p a' b'
   }.
 
 Class RPartialProfunctor (p : Type -> Type -> Type) : Type :=
   { asRProfunctor : RProfunctor p
-  ; rtoFailureP : forall {a b} {Cb : C b}, p a b -> p (option a) b
+  ; rtoFailureP : forall {a b} {Cb : K b}, p a b -> p (option a) b
   }.
 #[global] Existing Instance asRProfunctor.
 
@@ -185,6 +192,8 @@ Class Ord (a : Type) : Type :=
   }.
 #[global] Existing Instance compareLaws.
 
+#[global] Instance K_Ord {a} {Ord_a : Ord a} : K Ord a := Ord_a.
+
 Definition app_comparison (m n : comparison) : comparison :=
   match m with
   | Eq => n
@@ -229,7 +238,76 @@ Qed.
 #[global]
 Instance Ord_list {a} `{Ord a} : Ord (list a) := { compare := compare_list compare }.
 
-Record set (a : Type) : Type := MkSet { unset : list a }.
+Record set (a : Type) : Type := MkSet { set_to_list : list a }.
+
+Definition empty_set {a} : set a := MkSet [].
+
+Definition is_empty {a} (s : set a) : bool :=
+  match set_to_list s with [] => true | _ :: _ => false end.
+
+Definition size {a} (s : set a) : nat := length (set_to_list s).
+
+Fixpoint init {a} (xs : list a) : list a :=
+  match xs with
+  | [] => []
+  | _ :: [] => []
+  | x :: xs => x :: init xs
+  end.
+
+Fixpoint last {a} (xs : list a) : option a :=
+  match xs with
+  | [] => None
+  | x :: [] => Some x
+  | _ :: xs => last xs
+  end.
+
+Definition headS {a} (s : set a) : option a := last (set_to_list s).
+
+Definition tailS {a} (s : set a) : option (set a) := Some (MkSet (init (set_to_list s))).
+
+Fixpoint insert_ {a} `{Ord a} (y : a) (xxs : list a) : list a := 
+  match xxs with
+  | x :: xs =>
+    match compare x y with
+    | Eq => xxs
+    | Lt => x :: insert_ y xs
+    | Gt => y :: xxs
+    end
+  | nil => y :: nil
+  end.
+
+Definition insert {a} `{Ord a} (y : a) (s : set a) : set a := MkSet (insert_ y (set_to_list s)).
+
+Fixpoint remove_ {a} `{Ord a} (y : a) (xxs : list a) : list a :=
+  match xxs with
+  | x :: xs =>
+    match compare x y with
+    | Eq => xs
+    | Lt => x :: remove_ y xs
+    | Gt => xxs
+    end
+  | nil => nil
+  end.
+
+Definition remove {a} `{Ord a} (y : a) (s : set a) : set a := MkSet (remove_ y (set_to_list s)).
+
+Definition eqb_comparison (m n : comparison) : bool :=
+  match m, n with
+  | Eq, Eq | Lt, Lt | Gt, Gt => true
+  | _, _ => false
+  end.
+
+Definition ceqb {a} `{Ord a} (x y : a) : bool :=
+  eqb_comparison Eq (compare x y).
+
+Definition elem {a} `{Ord a} (x : a) (s : set a) : bool :=
+  List.existsb (ceqb x) (set_to_list s).
+
+Definition filter_set {a} (f : a -> bool) (s : set a) : set a :=
+  MkSet (List.filter f (set_to_list s)).
+
+Definition set_forallb {a} (f : a -> bool) (s : set a) : bool :=
+  List.forallb f (set_to_list s).
 
 Fixpoint merge {b} `{Ord b} (xs : list b) : list b -> list b :=
   fix merge_xs ys :=
@@ -244,6 +322,8 @@ Fixpoint merge {b} `{Ord b} (xs : list b) : list b -> list b :=
       end
     end.
 
+Definition union {a} `{Ord a} (s s' : set a) : set a := MkSet (merge (set_to_list s) (set_to_list s')).
+
 Fixpoint bind_set {a b} `{Ord b} (m : list a) (k : a -> list b) : list b :=
   match m with
   | [] => []
@@ -253,13 +333,27 @@ Fixpoint bind_set {a b} `{Ord b} (m : list a) (k : a -> list b) : list b :=
 #[global]
 Instance RMonad_set : RMonad Ord set :=
   { rret := fun _ _ x => MkSet (x :: [])
-  ; rbind := fun _ _ _ _ m k => MkSet (bind_set (unset m) (fun x => unset (k x)))
+  ; rbind := fun _ _ _ (_ : Ord _) m k => MkSet (bind_set (set_to_list m) (fun x => set_to_list (k x)))
   }.
 
 #[global]
 Instance RMonadPlus_set : RMonadPlus Ord set :=
   { rmzero := fun _ => MkSet []
   }.
+
+Definition compare_set {a} `{Ord a} (x y : set a) : comparison :=
+  compare (set_to_list x) (set_to_list y).
+
+#[local] Instance CompareLaws_set {a} `{Ord a} : CompareLaws compare_set.
+Proof.
+  constructor; repeat match goal with [ |- forall (H : set _), _ ] => intros [] end; cbn.
+  - apply CLreflexivity.
+  - intros HH; f_equal; apply (CLstrictness HH).
+  - apply CLantisymmetry.
+  - apply CLtransitivity.
+Qed.
+
+#[global] Instance Ord_set {a} `{Ord a} : Ord (set a) := { compare := compare_set }.
 
 Module GGR.
 
@@ -276,11 +370,55 @@ Definition GGR m := Product (Fwd m) (Bwd (OptionT (State bool))).
      ( rbind (Ca := Ca) (Cb := Cb) (fst m) (fun x => fst (k x))
      , rbind (Ca := Ca) (Cb := Cb) (snd m) (fun x => snd (k x)) ) }.
 
-#[global] Instance RMonadPlus_GGR {C} {m} `{RMonadPlus C m} {a} : RMonadPlus C (GGR m a).
-Admitted.
+#[global] Instance MonadPlus_OptionT {m} `{Monad m} : MonadPlus (OptionT m) :=
+  { mzero := fun _ => ret None
+  ; mplus := fun _ l r => bind (M := m) l (fun x =>
+      match x with None => r | Some x => ret x end)
+  }.
 
-#[global] Instance RProfmonad_GGR {C} {m} `{RMonadPlus C m} : RProfmonad C (GGR m).
-Admitted.
+#[global] Instance RMonadPlus_Fwd {C} {m} `{RMonadPlus C m} {a} : RMonadPlus C (Fwd m a) :=
+  { rmzero := fun _ => rmzero }.
+#[global] Instance RMonadPlus_MonadPlus {C} {m} `{MonadPlus m} : RMonadPlus C m :=
+  { rmzero := fun _ => mzero }.
+#[global] Instance RMonad_Bwd {C} {m} `{RMonad C m} {a} : RMonad C (Bwd m a) :=
+  { rret := fun _ _ x _ => rret x
+  ; rbind := fun _ _ _ _ m k y => rbind (m y) (fun x => k x y) }.
+#[global] Instance RMonadPlus_Bwd {C} {m} `{RMonadPlus C m} {a} : RMonadPlus C (Bwd m a) :=
+  { rmzero := fun _ _ => rmzero }.
+#[global] Instance RMonadPlus_Product {C} {p q} {a}
+  {RMonadPlus_p : RMonadPlus C (p a)} {RMonadPlus_q : RMonadPlus C (q a)} : RMonadPlus C (Product p q a) :=
+  { rmzero := fun _ => (rmzero, rmzero) }.
+
+#[global] Instance RMonadPlus_GGR {C} {m} `{RMonadPlus C m} {a} : RMonadPlus C (GGR m a) := _.
+
+#[global] Instance RProfunctor_Product {C} {p q}
+  {RProfunctor1 : RProfunctor C p} {RProfunctor2 : RProfunctor C q} : RProfunctor C (Product p q) :=
+  { rdimap := fun _ _ _ _ _ _ f g x => (rdimap f g (fst x), rdimap f g (snd x)) } .
+
+#[global] Instance RPartialProfunctor_Product {C} {p q}
+  {RPartialProfunctor1 : RPartialProfunctor C p} {RPartialProfunctor2 : RPartialProfunctor C q} : RPartialProfunctor C (Product p q) :=
+  { rtoFailureP := fun _ _ _ x => (rtoFailureP (fst x), rtoFailureP (snd x)) }.
+
+#[global] Instance RProfunctor_Fwd {C} {m} `{RMonad C m} : RProfunctor C (Fwd m) :=
+  { rdimap := fun _ _ _ _ _ _ f g x => rbind x (fun x => rret (g x)) }.
+
+#[global] Instance RPartialProfunctor_Fwd {C} {m} `{RMonadPlus C m} : RPartialProfunctor C (Fwd m) :=
+  { rtoFailureP := fun _ _ _ x => x }.
+
+#[global] Instance RProfmonad_Fwd {C} {m} `{RMonadPlus C m} : RProfmonad C (Fwd m) := {}.
+
+#[global] Instance RProfunctor_Bwd {C} {m} `{RMonad C m} : RProfunctor C (Bwd m) :=
+  { rdimap := fun _ _ _ _ _ _ f g x y => rbind (x (f y)) (fun x => rret (g x)) }.
+
+#[global] Instance RPartialProfunctor_Bwd {C} {m} `{RMonadPlus C m} : RPartialProfunctor C (Bwd m) :=
+  { rtoFailureP := fun _ _ _ m x => match x with None => rmzero | Some x => m x end }.
+
+#[global] Instance RProfmonad_Bwd {C} {m} `{RMonadPlus C m} : RProfmonad C (Bwd m) := {}.
+
+#[global] Instance RProfmonad_Product {C} {p q}
+  {RProfmonad1 : RProfmonad C p} {RProfmonad2 : RProfmonad C q} : RProfmonad C (Product p q) := {}.
+
+#[global] Instance RProfmonad_GGR {C} {m} `{RMonadPlus C m} : RProfmonad C (GGR m) := _.
 
 Definition mkIrrecoverable {m} {v} (gen : m v) (chk : v -> bool) : GGR m v v :=
   (gen, fun y => if chk y then ret (M := OptionT (State bool)) y else fun s => (s, None)).
@@ -311,7 +449,7 @@ Definition compatible (x y : Actor) : bool :=
 
 Definition row (x : Side) : Side := match x with L => R | R => L end.
 
-Definition chars : set Actor := MkSet [Human; Chicken; Fox; Grain].
+Definition chars : set Actor := MkSet [Human; Fox; Chicken; Grain].
 
 Definition compare_Actor (x y : Actor) : comparison :=
   match x, y with
@@ -329,17 +467,11 @@ Qed.
 #[global]
 Instance Ord_Actor : Ord Actor := { compare := compare_Actor }.
 
-Definition Actor_elem (x : Actor) (xs : list Actor) : bool :=
-  List.existsb (Actor_eqb x) xs.
-
-Definition filter_set {a} (f : a -> bool) (xs : set a) : set a :=
-  MkSet (List.filter f (unset xs)).
-
-Definition compat (xs : list Actor) : GGR set Actor Actor :=
+Definition compat (xs : set Actor) : GGR set Actor Actor :=
   mkRecoverable (m := set)
-    (if Actor_elem Human xs then filter_set (fun c => negb (Actor_elem c xs)) chars
-     else filter_set (fun c => negb (Actor_elem c xs) && List.forallb (compatible c) xs)%bool chars)
-    (fun c => (List.forallb (compatible c) xs || Actor_elem Human xs) && negb (Actor_elem c xs))%bool.
+    (if elem Human xs then filter_set (fun c => negb (elem c xs)) chars
+     else filter_set (fun c => negb (elem c xs) && set_forallb (compatible c) xs)%bool chars)
+    (fun c => (set_forallb (compatible c) xs || elem Human xs) && negb (elem c xs))%bool.
 
 Definition Actor_leb (x y : Actor) : bool :=
   match x, y with
@@ -352,25 +484,174 @@ Definition Actor_leb (x y : Actor) : bool :=
   | Chicken, Chicken => true
   end.
 
-Fixpoint insert (y : Actor) (xxs : list Actor) : list Actor := 
-  match xxs with
-  | x :: xs => if Actor_eqb x y then xxs else if Actor_leb x y then x :: insert y xs else y :: xxs
-  | nil => y :: nil
-  end.
-
 #[global]
 Instance MonadPartial_OptionT {m} `{Monad m} : MonadPartial (OptionT m) :=
   {| empty := fun _ => ret None |}.
 
-Fixpoint safeSide (n : nat) : GGR set (list Actor) (list Actor) :=
+Fixpoint safeSide (n : nat) : GGR set (set Actor) (set Actor) :=
   if 4 <? n then reject (C := Ord) else
   match n with
-  | O => rret nil
+  | O => rret empty_set
   | S n =>
     (* invariant: decreasing sorted list *)
-    xs <-( tail ?) (safeSide n) ;;
-    x  <-( head ?) (compat xs) ;;
+    xs <-( tailS ?) (safeSide n) ;;
+    x  <-( headS ?) (compat xs) ;;
     rret (insert x xs)
   end%rmonad.
+
+Record PuzzleState : Type := MkPuzzleState
+  { leftBank : set Actor
+  ; boat : set Actor
+  ; rightBank : set Actor
+  ; boatLocation : Side
+  }.
+
+Infix "<>" := app_comparison.
+
+Definition compare_Side (p q : Side) : comparison :=
+  match p, q with
+  | L, L | R, R => Eq | L, R => Lt | R, L => Gt
+  end.
+
+#[local] Instance CompareLaws_Side : CompareLaws compare_Side.
+Proof.
+  constructor; repeat intros [ | ]; discriminate + reflexivity.
+Qed.
+
+#[global] Instance Ord_Side : Ord Side := { compare := compare_Side }.
+
+Definition compare_PuzzleState (p q : PuzzleState) : comparison :=
+  compare (leftBank p) (leftBank q) <> (compare (boat p) (boat q) <> (compare (rightBank p) (rightBank q) <> compare (boatLocation p) (boatLocation q))).
+
+Lemma app_comparison_reflexivity {x y} : x = Eq -> y = Eq -> (x <> y) = Eq.
+Proof.
+  intros -> ->; reflexivity.
+Qed.
+
+Lemma app_comparison_strictness {x y} : (x <> y) = Eq -> x = Eq /\ y = Eq.
+Proof. destruct x; discriminate + constructor; reflexivity + assumption. Qed.
+
+Lemma app_comparison_transitivity {A} {compare : A -> A -> comparison}
+    `{!CompareLaws compare} {x y z n m p}
+  : (m = Lt -> n = Lt -> p = Lt) ->
+    (compare x y <> m) = Lt -> (compare y z <> n) = Lt -> (compare x z <> p) = Lt.
+Proof.
+  destruct compare eqn:Exy; [ apply CLstrictness in Exy; subst | | discriminate ].
+  - destruct compare; [ | | discriminate]; cbn; auto.
+  - destruct (compare y z) eqn:Eyz; [ apply CLstrictness in Eyz; subst | | discriminate ].
+    + rewrite Exy; auto.
+    + rewrite (CLtransitivity _ _ _ Exy Eyz). reflexivity.
+Qed.
+
+#[local] Instance CompareLaws_PuzzleState : CompareLaws compare_PuzzleState.
+Proof.
+  constructor; unfold compare_PuzzleState.
+  - intros []; cbn. repeat apply app_comparison_reflexivity; apply CLreflexivity.
+  - intros [] []; cbn. intros H.
+    do 3 (apply app_comparison_strictness in H; destruct H as [? H]).
+    f_equal; apply CLstrictness; assumption.
+  - intros [] []; cbn. rewrite !CompOpp_app_comparison; repeat f_equal; apply CLantisymmetry.
+  - intros [] [] []; cbn.
+    repeat apply app_comparison_transitivity; apply CLtransitivity.
+Qed.
+
+#[global] Instance Ord_PuzzleState : Ord PuzzleState := {}.
+
+Definition fromSet {a} `{Ord a} (s : set a) : GGR set a a :=
+  mkIrrecoverable s (fun x => elem x s).
+
+Definition validState (s : PuzzleState) : bool :=
+  (size (leftBank s) + size (rightBank s) + size (boat s) =? 4) &&
+  (size (union (leftBank s) (union (rightBank s) (boat s))) =? 4) &&
+  (size (boat s) <=? 2) &&
+  (is_empty (boat s) || elem Human (boat s)).
+
+Notation "f '$' x" := (f x)
+  (right associativity, at level 100, only parsing).
+
+Definition modify_boatLocation (f : Side -> Side) (p : PuzzleState) :=
+  match p with
+  | MkPuzzleState l b r s => MkPuzzleState l b r (f s)
+  end.
+
+Definition set_boat (b : set _) (p : PuzzleState) :=
+  match p with
+  | MkPuzzleState l _ r s => MkPuzzleState l b r s
+  end.
+
+Definition set_leftBank (l : set _) (p : PuzzleState) :=
+  match p with
+  | MkPuzzleState _ b r s => MkPuzzleState l b r s
+  end.
+
+Definition set_rightBank (r : set _) (p : PuzzleState) :=
+  match p with
+  | MkPuzzleState l b _ s => MkPuzzleState l b r s
+  end.
+
+Definition singleton {a} `{Ord a} (x : a) : set a := insert x empty_set.
+
+#[local] Open Scope bool_scope.
+
+Definition reachableStates (p : PuzzleState) : set PuzzleState :=
+  let insertValid (b : bool) x s := if (b && validState x)%bool then insert x s else s in
+  let human_on_boat := negb (is_empty (boat p)) in
+  (* row *)
+  insertValid human_on_boat (modify_boatLocation row p) $
+  (* unload *)
+  insertValid (ceqb L (boatLocation p) && human_on_boat)
+    (set_boat empty_set $ set_leftBank (union (boat p) (leftBank p)) p) $
+  insertValid (ceqb R (boatLocation p) && human_on_boat)
+    (set_boat empty_set $ set_rightBank (union (boat p) (rightBank p)) p) $
+  (* move cargo on boat *)
+  let loadL s x := insertValid (ceqb L (boatLocation p) && elem Human (leftBank p))
+    (set_boat (insert Human (insert x empty_set)) $ set_leftBank (remove Human (remove x (leftBank p))) p) s in
+  fold_left loadL (set_to_list (leftBank p)) $
+  let loadR s x :=  insertValid (ceqb R (boatLocation p) && elem Human (rightBank p))
+    (set_boat (insert Human (insert x empty_set)) $ set_rightBank (remove Human (remove x (rightBank p))) p) s in
+  fold_left loadR (set_to_list (rightBank p)) $
+  empty_set.
+
+Definition startState : PuzzleState := MkPuzzleState chars empty_set empty_set L.
+Definition endState : PuzzleState := MkPuzzleState empty_set empty_set chars R.
+Definition complete := ceqb endState.
+
+(* Compute (reachableStates startState). *)
+(* Compute (rbind (rbind (reachableStates startState) reachableStates) reachableStates). *)
+Lemma ttt : size (rbind (rbind (reachableStates startState) reachableStates) reachableStates) = 8.
+Proof. reflexivity. Qed.
+  
+Definition reachableState (current : PuzzleState) : GGR set PuzzleState PuzzleState :=
+  fromSet (reachableStates current).
+
+Definition ultimateSuccess {a} (xs : GGR set a a) (x : a) : bool :=
+  let (ok, res) := snd xs x true in ok && isSome res.
+
+Definition safeState (current : PuzzleState) : GGR set PuzzleState PuzzleState :=
+  (x <- reachableState current ;;
+  if (ultimateSuccess (safeSide (size (leftBank x))) (leftBank x)
+   && ultimateSuccess (safeSide (size (rightBank x))) (rightBank x))%bool
+  then rret x
+  else rmzero)%rmonad.
+
+Definition safeState' s := fst (safeState s).
+
+Compute rbind (rbind (rbind (safeState' startState) safeState') safeState') safeState' >>= safeState' >>= safeState' >>= safeState'.
+
+Fixpoint riverCrossing' (n : nat) (visited : set PuzzleState) (s : PuzzleState)
+  : GGR set (list PuzzleState) (list PuzzleState) :=
+  match n with
+  | O => rmzero
+  | S n =>
+    x <-( head ?) (safeState s) ;;
+    if complete x then rret [x]
+    else if elem x visited then rmzero
+    else xs <-( tail ?) riverCrossing' n (insert x visited) x ;; rret (x :: xs)
+  end%rmonad.
+
+Definition riverCrossing : GGR set (list PuzzleState) (list PuzzleState) :=
+  riverCrossing' 30 (insert startState empty_set) startState.
+
+Compute fst riverCrossing.
 
 End GGR.
