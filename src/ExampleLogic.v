@@ -303,7 +303,7 @@ Definition ceqb {a} `{Ord a} (x y : a) : bool :=
 Definition elem {a} `{Ord a} (x : a) (s : set a) : bool :=
   List.existsb (ceqb x) (set_to_list s).
 
-Definition filter_set {a} (f : a -> bool) (s : set a) : set a :=
+Definition set_filter {a} (f : a -> bool) (s : set a) : set a :=
   MkSet (List.filter f (set_to_list s)).
 
 Definition set_forallb {a} (f : a -> bool) (s : set a) : bool :=
@@ -469,8 +469,8 @@ Instance Ord_Actor : Ord Actor := { compare := compare_Actor }.
 
 Definition compat (xs : set Actor) : GGR set Actor Actor :=
   mkRecoverable (m := set)
-    (if elem Human xs then filter_set (fun c => negb (elem c xs)) chars
-     else filter_set (fun c => negb (elem c xs) && set_forallb (compatible c) xs)%bool chars)
+    (if elem Human xs then set_filter (fun c => negb (elem c xs)) chars
+     else set_filter (fun c => negb (elem c xs) && set_forallb (compatible c) xs)%bool chars)
     (fun c => (set_forallb (compatible c) xs || elem Human xs) && negb (elem c xs))%bool.
 
 Definition Actor_leb (x y : Actor) : bool :=
@@ -620,23 +620,20 @@ Definition complete := ceqb endState.
 (* Compute (rbind (rbind (reachableStates startState) reachableStates) reachableStates). *)
 Lemma ttt : size (rbind (rbind (reachableStates startState) reachableStates) reachableStates) = 8.
 Proof. reflexivity. Qed.
-  
-Definition reachableState (current : PuzzleState) : GGR set PuzzleState PuzzleState :=
-  fromSet (reachableStates current).
 
 Definition ultimateSuccess {a} (xs : GGR set a a) (x : a) : bool :=
   let (ok, res) := snd xs x true in ok && isSome res.
 
+Definition isSafeSide (xs : set Actor) : bool :=
+  ultimateSuccess (safeSide (size xs)) xs.
+
 Definition safeState (current : PuzzleState) : GGR set PuzzleState PuzzleState :=
-  (x <- reachableState current ;;
-  if (ultimateSuccess (safeSide (size (leftBank x))) (leftBank x)
-   && ultimateSuccess (safeSide (size (rightBank x))) (rightBank x))%bool
-  then rret x
-  else rmzero)%rmonad.
+  let is_safe s := isSafeSide (leftBank s) && isSafeSide (rightBank s) in
+  fromSet (set_filter is_safe (reachableStates current)).
 
-Definition safeState' s := fst (safeState s).
+Definition genSafeState s := fst (safeState s).
 
-Compute rbind (rbind (rbind (safeState' startState) safeState') safeState') safeState' >>= safeState' >>= safeState' >>= safeState'.
+Compute genSafeState startState >>= genSafeState >>= genSafeState.
 
 Fixpoint riverCrossing' (n : nat) (visited : set PuzzleState) (s : PuzzleState)
   : GGR set (list PuzzleState) (list PuzzleState) :=
