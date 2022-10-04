@@ -1,4 +1,4 @@
-From Coq Require Import Arith List.
+From Coq Require Import Arith List Lia.
 From Profmonad Require Import Utils Profmonad.
 Import ListNotations.
 Set Implicit Arguments.
@@ -80,9 +80,10 @@ Fixpoint nQueens {m} `{MonadPlus m} (n : nat) : GG m (list Pos) (list Pos) :=
     ret (x :: xs)
   end.
 
-Definition allSolutions : list (list Pos) := generate (nQueens 8).
+Definition checkNQueens : list Pos -> bool := toPredicate (nQueens 8).
+Definition generateNQueens : list (list Pos) := generate (nQueens 8).
 
-(* Eval lazy in (head allSolutions). *)
+(* Eval lazy in (head generateNQueens). *)
 (*
 = Some
          ((7, 3)
@@ -265,7 +266,7 @@ Definition headS {a} (s : set a) : option a := last (set_to_list s).
 
 Definition tailS {a} (s : set a) : option (set a) := Some (MkSet (init (set_to_list s))).
 
-Fixpoint insert_ {a} `{Ord a} (y : a) (xxs : list a) : list a := 
+Fixpoint insert_ {a} `{Ord a} (y : a) (xxs : list a) : list a :=
   match xxs with
   | x :: xs =>
     match compare x y with
@@ -652,3 +653,197 @@ Definition riverCrossing : GGR set (list PuzzleState) (list PuzzleState) :=
 Compute fst riverCrossing.
 
 End GGR.
+
+
+(** * Proofs *)
+
+#[global] Instance MonadLaws_option : MonadLaws option.
+Proof.
+  constructor.
+  - intros ? []; reflexivity.
+  - reflexivity.
+  - intros ? ? ? [] ? ?; reflexivity.
+Qed.
+
+#[global] Instance MonadPartialLaws_option : MonadPartialLaws (M := option) _.
+Proof.
+  constructor.
+  - typeclasses eauto.
+  - reflexivity.
+Qed.
+
+(** ** n-Queens *)
+
+(** Completeness: if it is accepted by the predicate, it may be generated *)
+Definition complete : forall A B, GG list A B -> Prop :=
+  fun _ _ gg =>
+    forall a b, check gg a = Some b -> List.In b (generate gg).
+
+#[global] Instance ProfmonadLaws_GG : ProfmonadLaws (GG list).
+Proof. typeclasses eauto. Qed.
+
+#[global] Instance Compositional_complete : Compositional (P := GG list) (@complete).
+Proof.
+  constructor.
+  - typeclasses eauto.
+  - intros. red. intros *; cbn. injection 1. left; auto.
+  - unfold complete; cbn; intros.
+    destruct (option_bind_inv_Some _ _ _ H1) as [a' H'].
+    rewrite H' in H1; cbn in H1.
+    apply H in H'. apply H0 in H1.
+    apply in_flat_map.
+    eexists; split; eauto.
+  - unfold complete; cbn; intros. unfold Profunctor_pfunction in H0.
+    destruct (option_map_inv_Some _ _ _ H0) as [a' H'].
+    rewrite H' in H0; cbn in H0; injection H0; clear H0; intros <-.
+    destruct (option_bind_inv_Some _ _ _ H') as [a'' H''].
+    rewrite H'' in H'; cbn in H'.
+    apply H in H'.
+    apply in_flat_map.
+    eexists; split; eauto. constructor; reflexivity.
+Qed.
+
+(* Soundness: if it can be generated, the predicate must accept it *)
+Definition sound : forall A, GG list A A -> Prop :=
+  fun _ gg =>
+    forall a, List.In a (generate gg) -> check gg a = Some a.
+
+Class Idiomcompositional
+      {P : Type -> Type -> Type}
+      `{Profmonad P}
+      (R : forall A, P A A -> Prop) : Prop :=
+  {
+    ret_pseudocomp :
+      forall A a, R A (ret a);
+    bind_pseudocomp :
+      forall A B (m : P A A) (k : A -> P B B) (f : B -> option A),
+        (forall a, (x <- k a;; ret (f x)) = (x <- k a;; ret (Some a))) ->
+        R A m ->
+        (forall a, R B (k a)) ->
+        R B (bind (Profmonad.comap f m) k);
+  }.
+
+Definition option_map_id : forall A (u : option A), option_map (fun x => x) u = u.
+Proof. intros A []; reflexivity. Qed.
+
+#[global] Instance Idiomcompositional_sound : Idiomcompositional (P := GG list) (@sound).
+Proof.
+  constructor.
+  - unfold sound; cbn. intros * [ <- | []]; constructor.
+  - unfold sound; cbn. intros * H H1 H2 b H3.
+    apply in_flat_map in H3; destruct H3 as [a [H3 H4]].
+    apply in_flat_map in H3; destruct H3 as [a' [H3 H5]].
+    destruct H5 as [ -> | []].
+    apply H1 in H3. apply H2 in H4.
+    unfold Profunctor_pfunction. unfold check in H3, H4.
+    rewrite option_map_id.
+    assert (Hf : f b = Some a).
+    { specialize (H a). injection H; intros H5 _. apply (f_equal (fun f => f b)) in H5.
+      rewrite H4 in H5; cbn in H5. injection H5; auto. }
+    rewrite Hf; cbn. rewrite H3; cbn. auto.
+Qed.
+
+Lemma sound_reject : forall A, sound (reject (a := A)).
+Proof. unfold sound; cbn. contradiction. Qed.
+
+Lemma sound_safePlacing xs : sound (safePlacing xs).
+Proof.
+Admitted.
+
+Lemma sound_nQueens' : forall n, sound (nQueens n).
+Proof.
+  induction n as [ | n IH ].
+  - unfold sound; cbn. intros _ [ <- | []]; reflexivity.
+  - unfold nQueens; fold nQueens. destruct (Nat.ltb_spec0 8 (S n)) as [ Hltb | Hltb ].
+    + apply @sound_reject.
+    + apply bind_pseudocomp.
+      { intros. rewrite 2 bind_bind. reflexivity. }
+      { apply IH. }
+      intros. apply bind_pseudocomp.
+      { intros; cbn; reflexivity. }
+      { apply sound_safePlacing. }
+      intros. apply ret_pseudocomp.
+Qed.
+
+Lemma sound_sound : forall A (m : GG list A A), sound m -> forall x, List.In x (generate m) -> toPredicate m x = true.
+Proof. intros * Hsound x Hx; apply Hsound in Hx. unfold toPredicate. rewrite Hx. reflexivity. Qed.
+
+(** TODO: setting n := 8 makes Qed very slow. *)
+Theorem sound_nQueens : forall n x, List.In x (generate (nQueens n)) -> toPredicate (nQueens n) x = true.
+Proof.
+  intros n; apply @sound_sound, sound_nQueens'.
+Qed.
+
+Definition aligned {m A} (P : A -> Prop) (m : GG m A A) : Prop :=
+  forall x, P x -> forall y, check m x = Some y -> x = y.
+
+Lemma aligned_reject : forall a (P : a -> Prop), aligned P (reject (a := a)).
+Proof. red; discriminate. Qed.
+
+Lemma aligned_bind : forall a b (P Q : _ -> Prop) (u : GG list a a) (k : a -> GG list b b) (f : b -> option a),
+  (forall y, Q y -> exists x, f y = Some x /\ P x) ->
+  aligned P u -> (forall x, P x -> aligned (fun y => f y = Some x /\ Q y) (k x)) -> aligned Q (bind (Profmonad.comap f u) k).
+Proof.
+  intros * Hf Hu Hk. red. cbn; intros y Hy y' Ey.
+  specialize (Hf _ Hy). destruct Hf as [ x [ Ex Hx ] ]. rewrite Ex in Ey; cbn in Ey.
+  destruct (snd u) eqn:Eu in Ey; [ cbn in Ey | discriminate ].
+  apply Hu in Eu; auto; subst.
+  apply Hk in Ey; auto; subst.
+Qed.
+
+Lemma aligned_safePlacing : forall xs (P : _ -> Prop), aligned P (safePlacing xs).
+Proof.
+Admitted.
+
+Lemma aligned_nQueens : forall n, aligned (fun xs => List.length xs = n) (nQueens n).
+Proof.
+  induction n as [ | n IH ].
+  - red; cbn. intros []; [ | discriminate ].
+    intros _ ?; injection 1; auto.
+  - cbn [nQueens]. destruct (Nat.ltb_spec0 8 (S n)) as [ Hltb | Hltb ].
+    + apply @aligned_reject.
+    + eapply @aligned_bind; [ | apply IH | ].
+      { intros [ | ? tl ]; [ discriminate | injection 1; intros ]. exists tl. split; auto. }
+      intros. eapply @aligned_bind; [ | apply (@aligned_safePlacing _ (fun _ => True)) | ].
+      { intros [ | ? tl ]; cbn; intros [HH1 HH2]; [discriminate | ].
+        injection HH1; injection HH2; clear HH1 HH2; intros; subst.
+        exists p; eauto. }
+      intros. red; cbn. intros [] [? [? ?]]; [ discriminate | ].
+      injection H1; injection H2; intros [] []. intros ?; injection 1; auto.
+Qed.
+
+Lemma complete_reject {A} : complete (reject (a := A)).
+Proof.
+  unfold complete; cbn. discriminate.
+Qed.
+
+Lemma complete_safePlacing xs : complete (safePlacing xs).
+Admitted.
+
+Lemma complete_nQueens' : forall n, complete (nQueens n).
+Proof.
+  induction n as [ | n IH ].
+  - unfold complete; cbn. intros _ ?; cbn; injection 1; auto.
+  - cbn [nQueens]. destruct (Nat.ltb_spec0 8 (S n)) as [ Hltb | Hltb ].
+    + apply @complete_reject.
+    + apply bind_comp.
+      { apply comap_comp, IH. }
+      intros. apply bind_comp. 
+      { apply comap_comp, complete_safePlacing. }
+      intros; apply ret_comp.
+Qed.
+
+Lemma complete_complete : forall A (P : A -> Prop) (m : GG list A A), aligned P m -> complete m -> forall x, P x -> toPredicate m x = true -> List.In x (generate m).
+Proof.
+  intros * Haligned Hcomplete x HPx Hx. unfold toPredicate in Hx.
+  destruct check eqn:Echeck in Hx; [ | discriminate ].
+  destruct (Haligned _ HPx _ Echeck).
+  revert Echeck; apply Hcomplete.
+Qed.
+
+Theorem complete_nQueens : forall n x, length x = n -> toPredicate (nQueens n) x = true -> List.In x (generate (nQueens n)).
+Proof.
+  intros n; apply complete_complete.
+  - apply @aligned_nQueens.
+  - apply complete_nQueens'.
+Qed.

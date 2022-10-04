@@ -593,20 +593,49 @@ Definition hom (P1 P2 : Type -> Type -> Type) : Type :=
 
 Definition pfunction (A B : Type) : Type := A -> option B.
 
-Instance Monad_pfunction {A} : Monad (pfunction A) := {|
+#[global] Instance Monad_pfunction {A} : Monad (pfunction A) := {|
   ret _ a := fun _ => Some a;
   bind _ _ m k u := x <- m u;; k x u;
 |}.
 
-Instance Profunctor_pfunction : Profunctor pfunction :=
+#[global] Instance Profunctor_pfunction : Profunctor pfunction :=
   fun _ _ _ _ f g u x =>
     option_map g (u (f x)).
 
-Instance PartialProfunctor_pfunction : PartialProfunctor pfunction :=
+#[global] Instance PartialProfunctor_pfunction : PartialProfunctor pfunction :=
   {| toFailureP := fun U A (u : pfunction U A) (x : option U) => bind_option x u |}.
 
-Instance Profmonad_pfunction : Profmonad pfunction :=
+#[global] Instance Profmonad_pfunction : Profmonad pfunction :=
   Build_Profmonad _ _ _.
+
+Arguments Profunctor_pfunction _ _ _ _ _ _ _ _ /.
+Arguments compose _ _ _ _ _ _ /.
+Arguments id _ _ /.
+
+#[global] Instance ProfmonadLaws_pfunction : ProfmonadLaws pfunction.
+Proof.
+  constructor.
+  - constructor.
+    + intros a m; apply functional_extensionality; intros x; cbn.
+      destruct m; reflexivity.
+    + intros *; reflexivity.
+    + intros *; apply functional_extensionality; intros x; cbn.
+      destruct m; reflexivity.
+  - constructor.
+    + constructor.
+      * intros; apply functional_extensionality; intros x; cbn.
+        unfold Profunctor_pfunction. apply functional_extensionality; intros.
+        destruct x; reflexivity.
+      * intros; apply functional_extensionality; intros; cbn.
+        apply functional_extensionality; intros; cbn. destruct x; reflexivity.
+    + intros. apply functional_extensionality; intros; cbn.
+      destruct x; cbn; reflexivity.
+  - intros *; apply functional_extensionality; intros; cbn.
+    destruct u; reflexivity.
+  - constructor.
+    + reflexivity.
+    + intros. apply functional_extensionality; intros; cbn. destruct m; cbn; reflexivity.
+Qed.
 
 (*** Compositionality ***)
 
