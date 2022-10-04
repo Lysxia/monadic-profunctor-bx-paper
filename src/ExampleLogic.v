@@ -66,9 +66,14 @@ Definition conflict (p q : Pos) : bool :=
 Definition choose {m} `{MonadPlus m} {a} (xs : list a) : m a :=
   List.fold_right (fun x y => mplus (ret x) y) mzero xs.
 
+Definition isValidPos (x : Pos) : bool :=
+  (fst x <? 8) && (snd x <? 8).
+
 Definition safePlacing {m} `{MonadPlus m} (xs : list Pos) : GG m Pos Pos :=
   let noconflicts p := List.forallb (fun q => negb (conflict p q)) xs in
-  mkAlignedGG (choose (filter noconflicts validPos)) noconflicts.
+  mkAlignedGG (choose (filter noconflicts validPos)) (fun x => noconflicts x && isValidPos x)%bool.
+(* TODO: update paper
+   The isValidPos condition was added in the checker direction to satisfy completeness. *)
 
 Fixpoint nQueens {m} `{MonadPlus m} (n : nat) : GG m (list Pos) (list Pos) :=
   if (8 <? n) then reject else
@@ -746,9 +751,31 @@ Qed.
 Lemma sound_reject : forall A, sound (reject (a := A)).
 Proof. unfold sound; cbn. contradiction. Qed.
 
+Lemma sound_mkAlignedGG {v} {p : list v} {q : v -> bool}
+    (H : forall x, In x p -> q x = true)
+  : sound (mkAlignedGG p q).
+Proof.
+  unfold sound; cbn. intros. rewrite H; auto.
+Qed.
+
+Lemma choose_id {A} (xs : list A) : choose xs = xs.
+Proof.
+  induction xs; cbn; [ reflexivity | ]. f_equal; auto.
+Qed.
+
+Lemma sound_validPos : forall x, In x validPos -> isValidPos x = true.
+Proof.
+  unfold validPos, isValidPos. intros [x y] H. cbn. apply in_prod_iff in H. destruct H as [H1 H2].
+  apply in_seq in H1, H2.
+  apply Bool.andb_true_iff. split; apply Nat.leb_le; lia.
+Qed.
+
 Lemma sound_safePlacing xs : sound (safePlacing xs).
 Proof.
-Admitted.
+  apply sound_mkAlignedGG.
+  intros x H; rewrite choose_id in H.
+  apply filter_In in H. destruct H. apply Bool.andb_true_iff; split; auto using sound_validPos.
+Qed.
 
 Lemma sound_nQueens' : forall n, sound (nQueens n).
 Proof.
@@ -791,9 +818,16 @@ Proof.
   apply Hk in Ey; auto; subst.
 Qed.
 
+Lemma aligned_mkAlignedGG {v} {P : v -> Prop} {p : list v} {q}
+  : aligned P (mkAlignedGG p q).
+Proof.
+  unfold aligned; cbn. intros ? ? ? H; destruct q; [ injection H; auto | discriminate ].
+Qed.
+
 Lemma aligned_safePlacing : forall xs (P : _ -> Prop), aligned P (safePlacing xs).
 Proof.
-Admitted.
+  intros. apply @aligned_mkAlignedGG.
+Qed.
 
 Lemma aligned_nQueens : forall n, aligned (fun xs => List.length xs = n) (nQueens n).
 Proof.
@@ -817,8 +851,31 @@ Proof.
   unfold complete; cbn. discriminate.
 Qed.
 
+Lemma complete_mkAlignedGG {v} {p : list v} {q : v -> bool}
+  : (forall x, q x = true -> In x p) -> complete (mkAlignedGG p q).
+Proof.
+  intros H; unfold complete; cbn; intros.
+  destruct (q a) eqn:Eq; [ | discriminate ].
+  injection H0; intros []. auto.
+Qed.
+
+Lemma complete_validPos : forall x, isValidPos x = true -> In x validPos.
+Proof.
+  unfold isValidPos; intros [x y] H. cbn in H.
+  apply Bool.andb_true_iff in H; destruct H as [H1 H2].
+  apply Nat.leb_le in H1, H2.
+  unfold validPos.
+  apply in_prod; apply in_seq; cbn; lia.
+Qed.
+
 Lemma complete_safePlacing xs : complete (safePlacing xs).
-Admitted.
+Proof.
+  apply complete_mkAlignedGG; intros x H.
+  rewrite choose_id.
+  apply filter_In.
+  apply Bool.andb_true_iff in H; destruct H as [H1 H2].
+  split; auto using complete_validPos.
+Qed.
 
 Lemma complete_nQueens' : forall n, complete (nQueens n).
 Proof.
