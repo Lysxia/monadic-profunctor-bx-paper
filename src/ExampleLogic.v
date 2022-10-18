@@ -639,7 +639,7 @@ Definition safeState (current : PuzzleState) : GGR set PuzzleState PuzzleState :
 
 Definition genSafeState s := fst (safeState s).
 
-Compute genSafeState startState >>= genSafeState >>= genSafeState.
+(* Compute genSafeState startState >>= genSafeState >>= genSafeState. *)
 
 Fixpoint riverCrossing' (n : nat) (visited : set PuzzleState) (s : PuzzleState)
   : GGR set (list PuzzleState) (list PuzzleState) :=
@@ -655,7 +655,7 @@ Fixpoint riverCrossing' (n : nat) (visited : set PuzzleState) (s : PuzzleState)
 Definition riverCrossing : GGR set (list PuzzleState) (list PuzzleState) :=
   riverCrossing' 30 (insert startState empty_set) startState.
 
-Compute fst riverCrossing.
+(* Compute fst riverCrossing. *)
 
 End GGR.
 
@@ -713,24 +713,6 @@ Definition sound : forall A, GG list A A -> Prop :=
   fun _ gg =>
     forall a, List.In a (generate gg) -> check gg a = Some a.
 
-Class Idiomcompositional
-      {P : Type -> Type -> Type}
-      `{Profmonad P}
-      (R : forall A, P A A -> Prop) : Prop :=
-  {
-    ret_pseudocomp :
-      forall A a, R A (ret a);
-    bind_pseudocomp :
-      forall A B (m : P A A) (k : A -> P B B) (f : B -> option A),
-        (forall a, (x <- k a;; ret (f x)) = (x <- k a;; ret (Some a))) ->
-        R A m ->
-        (forall a, R B (k a)) ->
-        R B (bind (Profmonad.comap f m) k);
-  }.
-
-Definition option_map_id : forall A (u : option A), option_map (fun x => x) u = u.
-Proof. intros A []; reflexivity. Qed.
-
 #[global] Instance Idiomcompositional_sound : Idiomcompositional (P := GG list) (@sound).
 Proof.
   constructor.
@@ -740,7 +722,7 @@ Proof.
     apply in_flat_map in H3; destruct H3 as [a' [H3 H5]].
     destruct H5 as [ -> | []].
     apply H1 in H3. apply H2 in H4.
-    unfold Profunctor_pfunction. unfold check in H3, H4.
+    unfold check in H3, H4.
     rewrite option_map_id.
     assert (Hf : f b = Some a).
     { specialize (H a). injection H; intros H5 _. apply (f_equal (fun f => f b)) in H5.
@@ -783,13 +765,13 @@ Proof.
   - unfold sound; cbn. intros _ [ <- | []]; reflexivity.
   - unfold nQueens; fold nQueens. destruct (Nat.ltb_spec0 8 (S n)) as [ Hltb | Hltb ].
     + apply @sound_reject.
-    + apply bind_pseudocomp.
+    + apply bind_idiomcomp.
       { intros. rewrite 2 bind_bind. reflexivity. }
       { apply IH. }
-      intros. apply bind_pseudocomp.
+      intros. apply bind_idiomcomp.
       { intros; cbn; reflexivity. }
       { apply sound_safePlacing. }
-      intros. apply ret_pseudocomp.
+      intros. apply ret_idiomcomp.
 Qed.
 
 Lemma sound_sound : forall A (m : GG list A A), sound m -> forall x, List.In x (generate m) -> toPredicate m x = true.
@@ -898,7 +880,7 @@ Proof.
   revert Echeck; apply Hcomplete.
 Qed.
 
-Theorem complete_nQueens : forall n x, length x = n -> toPredicate (nQueens n) x = true -> List.In x (generate (nQueens n)).
+Theorem complete_nQueens : forall n xs, length xs = n -> toPredicate (nQueens n) xs = true -> List.In xs (generate (nQueens n)).
 Proof.
   intros n; apply complete_complete.
   - apply @aligned_nQueens.

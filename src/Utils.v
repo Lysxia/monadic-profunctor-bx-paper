@@ -56,3 +56,6 @@ Definition isSome {A} (x : option A) : bool :=
   | Some _ => true
   | None => false
   end.
+
+Definition option_map_id : forall A (u : option A), option_map (fun x => x) u = u.
+Proof. intros A []; reflexivity. Qed.

@@ -1,9 +1,11 @@
 From Coq Require Import
+  FunctionalExtensionality
   Arith
   List
   Lia.
 Import ListNotations.
 From Profmonad Require Import
+  Utils
   Profmonad.
 
 Set Implicit Arguments.
@@ -313,6 +315,79 @@ Proof.
   apply aligned_weak_complete.
   - apply aligned_bst.
   - apply weak_complete_bst.
+Qed.
+
+Lemma In_singleton_inv {A} (x y : A) : In x [y] -> x = y.
+Proof.
+  intros H; inversion H; subst; auto. inversion H0.
+Qed.
+
+Definition very_sound {A : Type} (g : bigen A A) : Prop :=
+  forall x, member x (run_gen g) -> snd g x = Some x.
+
+Lemma very_sound_sound {A} (g : bigen A A) : very_sound g -> sound g.
+Proof.
+  intros F x H. unfold run_pred. rewrite (F _ H). reflexivity.
+Qed.
+
+#[global]
+Instance Idiomcompositional_very_sound : Idiomcompositional (@very_sound).
+Proof.
+  constructor.
+  - unfold very_sound. intros * H; apply In_singleton_inv in H; subst; reflexivity.
+  - unfold very_sound; cbn; intros * Hf Hm Hk b Hb.
+    apply in_flat_map in Hb. destruct Hb as (a & Ha1 & Hb).
+    apply in_flat_map in Ha1; destruct Ha1 as (a2 & Ha2 & Ha1).
+    apply In_singleton_inv in Ha1; subst a2.
+    apply Hm in Ha2. apply Hk in Hb.
+    rewrite option_map_id.
+    assert (Hf' : f b = Some a).
+    { specialize (Hf a). injection Hf; intros H5 _. apply (f_equal (fun f => f b)) in H5.
+      rewrite Hb in H5; cbn in H5. injection H5; auto. }
+    rewrite Hf'; cbn. rewrite Ha2; cbn. auto.
+Qed.
+
+Lemma very_sound_leaf : very_sound bigen_leaf.
+Proof.
+  red; cbn. intros ? [<- | []]. cbn. reflexivity.
+Qed.
+
+Lemma very_sound_bool : very_sound bigen_bool.
+Proof.
+  red. reflexivity.
+Qed.
+
+Lemma very_sound_range min max : very_sound (bigen_range min max).
+Proof.
+  red; cbn.
+  intros x Hx; apply in_seq in Hx. destruct Hx as (Hmin & Hmax).
+  rewrite (proj1 (Bool.reflect_iff _ _ (Nat.leb_spec0 min x)) Hmin).
+  rewrite (proj1 (Bool.reflect_iff _ _ (Nat.leb_spec0 _ _))); [ | lia ].
+  reflexivity.
+Qed.
+
+Theorem very_sound_bst d min max : very_sound (bigen_bst d min max).
+Proof.
+  revert min max; induction d; intros; cbn [bigen_bst].
+  - exact @very_sound_leaf.
+  - destruct (Nat.ltb_spec max min).
+    + apply @very_sound_leaf.
+    + apply bind_idiomcomp.
+      { intros [].
+        - reflexivity.
+        - repeat (setoid_rewrite bind_bind; f_equal; apply functional_extensionality; intros). }
+      { apply @very_sound_bool. }
+      { intros [].
+        { apply ret_idiomcomp. }
+        { repeat (apply bind_idiomcomp; [ | auto using very_sound_range | intros ]); [ .. | apply ret_idiomcomp ].
+          all: intros; repeat (setoid_rewrite bind_bind; f_equal; apply functional_extensionality; intros); rewrite !ret_bind; reflexivity.
+        }
+      }
+Qed.
+
+Theorem sound_bst d min max : sound (bigen_bst d min max).
+Proof.
+  apply very_sound_sound, very_sound_bst.
 Qed.
 
 Print Assumptions complete_bst.
