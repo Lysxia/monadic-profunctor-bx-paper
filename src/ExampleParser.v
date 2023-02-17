@@ -79,6 +79,7 @@ Definition biparse_string `{Biparser P} : P (list nat) (list nat) :=
 
 (** *** Products *)
 
+#[global]
 Instance Biparser_product P1 P2 `{Biparser P1, Biparser P2} :
   Biparser (Product P1 P2) :=
   { biparse_token := (biparse_token, biparse_token);
@@ -93,12 +94,14 @@ Definition stream := list t.
 
 Definition parser (A : Type) : Type := stream -> option (A * stream).
 
+#[global]
 Instance Monad_parser : Monad parser :=
   { ret A x := fun s => Some (x, s);
     bind A B m k := fun s =>
       bind (m s) (fun '(a, s') => k a s')
   }.
 
+#[global]
 Instance MonadLaws_parser : MonadLaws parser.
 Proof.
   constructor.
@@ -122,6 +125,7 @@ Proof.
     destruct (m s) as [ [ ] | ]; simpl; auto.
 Qed.
 
+#[global]
 Instance MonadPartial_parser : MonadPartial parser :=
   { empty := fun _ _ => None }.
 
@@ -131,6 +135,7 @@ Definition parser2 := Fwd parser.
 
 Definition Profmonad_parser2 := Profmonad_Fwd parser.
 
+#[global]
 Instance Biparser_parser2 : Biparser parser2 :=
   { biparse_token s :=
       match s with
@@ -146,6 +151,7 @@ Instance Biparser_parser2 : Biparser parser2 :=
 
 Definition printer (A : Type) := option (stream * A).
 
+#[global]
 Instance Monad_printer : Monad printer :=
   { ret A a := Some ([], a);
     bind A B m k :=
@@ -154,6 +160,7 @@ Instance Monad_printer : Monad printer :=
       Some (s ++ s', b)));
   }.
 
+#[global]
 Instance MonadLaws_printer : MonadLaws printer.
 Proof.
   constructor.
@@ -176,9 +183,11 @@ Proof.
     auto.
 Qed.
 
+#[global]
 Instance MonadPartial_printer : MonadPartial printer :=
   { empty A := None }.
 
+#[global]
 Instance MonadPartialLaws_printer :
   MonadPartialLaws (MonadPartial_printer).
 Proof.
@@ -189,10 +198,12 @@ Qed.
 
 Definition printer2 := Bwd printer.
 
+#[global]
 Instance Biparser_printer2 : Biparser printer2 :=
   { biparse_token := (fun n => Some ([n], n));
   }.
 
+#[global]
 Instance Biparser_pure : Biparser pfunction :=
   {|
     biparse_token := (fun n => Some n) : pfunction nat nat;
@@ -256,126 +267,141 @@ Definition right_round_trip A (pa : parser2 A A) (pr : printer2 A A)
     | Some _ => True
     end.
 
-Definition backward {A} (p : biparser A A) : Prop :=
+Definition backward {A} (P : A -> Prop) (p : biparser A A) : Prop :=
   forall (a : A) (s s' : list t),
+    P a ->
     (exists a', snd p a = Some (s, a')) ->
     fst p (s ++ s') = Some (a, s').
 
-Definition forward {A} (p : biparser A A) : Prop :=
-  forall (a : A) (s01 s1 s0 : list t),
+Definition forward {A} (P : A -> Prop) (p : biparser A A) : Prop :=
+  forall (a : A) (s01 s1 : list t),
     fst p s01 = Some (a, s1) ->
-    (exists a', snd p a = Some (s0, a')) ->
-    s01 = s0 ++ s1.
+    P a /\ forall s0,
+    ((exists a', snd p a = Some (s0, a')) ->
+    s01 = s0 ++ s1).
 
 (** *** Weak but compositional roundtrip properties *)
 
-Definition weak_backward {U A} (p : biparser U A) : Prop :=
+Definition weak_backward {U A} (P : U -> Prop) (p : biparser U A) : Prop :=
   forall (u : U) (a : A) (s s' : list t),
+    P u ->
     snd p u = Some (s, a) ->
     fst p (s ++ s') = Some (a, s').
 
-Definition weak_forward {U A} (p : biparser U A) : Prop :=
-  forall (u : U) (a : A) (s01 s1 s0 : list t),
+Definition weak_forward {U A} (P : A -> Prop) (p : biparser U A) : Prop :=
+  forall (a : A) (s01 s1 : list t),
     fst p s01 = Some (a, s1) ->
-    snd p u = Some (s0, a) ->
-    s01 = s0 ++ s1.
+    P a /\
+    forall (u : U) (s0 : list t),
+    (snd p u = Some (s0, a) ->
+    s01 = s0 ++ s1).
 
 (** *** Purification, alignment *)
 
 Definition purify {U V} (p : biparser U V) : pfunction U V :=
   fun a => option_map snd (snd p a).
 
-Definition aligned {A} (p : biparser A A) : Prop :=
-  forall (a : A),
-    exists s0, snd p a = Some (s0, a).
+Definition aligned {A} (P : A -> Prop) (p : biparser A A) : Prop :=
+  forall (a : A), P a -> purify p a = Some a.
 
-Definition aligned_ {U A} (f : U -> A) (p : biparser U A) : Prop :=
-  forall (u : U),
-    (exists s0, snd p u = Some (s0, f u)).
-
-Definition aligned' {A} (p : pfunction A A) : Prop :=
-  forall (a : A), p a = Some a.
-
-Theorem aligned_equiv {A} (p : biparser A A)
-  : aligned p <-> aligned' (purify p).
-Proof.
-  split; intros H a; unfold aligned, aligned', purify in *.
-  - destruct (H a) as [s E].
-    rewrite E; reflexivity.
-  - specialize (H a).
-    destruct (snd p a) as [ [] | ]; cbn in H; try discriminate.
-    injection H; intros []; eauto.
-Qed.
+Definition aligned_ {U A} (P : U -> Prop) (f : U -> A) (p : biparser U A) : Prop :=
+  forall (u : U), P u -> purify p u = Some (f u).
 
 (** ** Connection between strong and weak roundtrip properties **)
 
-Theorem backward_aligned {A} (p : biparser A A) :
-  aligned p ->
-  weak_backward p ->
-  backward p.
+Theorem backward_aligned {A} (P : A -> Prop) (p : biparser A A) :
+  aligned P p ->
+  weak_backward P p ->
+  backward P p.
 Proof.
-  intros ALIGNED WBWD a s s' [a' Ea].
-  destruct (ALIGNED a).
-  rewrite Ea in H.
-  injection H; intros [] [].
-  apply (WBWD _ _ _ _ Ea).
+  intros ALIGNED WBWD a s s' Pa [a' Ea].
+  specialize (ALIGNED a Pa).
+  unfold purify in ALIGNED.
+  rewrite Ea in ALIGNED; cbn in ALIGNED.
+  injection ALIGNED; intros [].
+  apply (WBWD _ _ _ _ Pa Ea).
 Qed.
 
-Theorem forward_aligned {A} (p : biparser A A) :
-  aligned p ->
-  weak_forward p ->
-  forward p.
+Theorem forward_aligned {A} (P : A -> Prop) (p : biparser A A) :
+  aligned P p ->
+  weak_forward P p ->
+  forward P p.
 Proof.
-  intros ALIGNED WFWD a s01 s1 s0 E01 [a' E0].
-  destruct (ALIGNED a).
-  rewrite E0 in H.
-  injection H. intros; subst.
-  eapply WFWD; eauto.
+  intros ALIGNED WFWD a s01 s1 E01.
+  destruct (WFWD a _ _ E01) as [H1 H2].
+  split; [ apply H1 | intros s0 [a' H3]].
+  specialize (ALIGNED a H1).
+  unfold purify in ALIGNED.
+  rewrite H3 in ALIGNED; injection ALIGNED; intros; subst.
+  revert H3; apply H2.
 Qed.
 
 (** ** Compositionality of weak roundtrip properties *)
 
-Lemma weak_backward_ret U A (a : A) : @weak_backward U A (ret a).
+Lemma weak_backward_ret U A (P : U -> Prop) (a : A) : weak_backward P (ret a).
 Proof.
-  intros u b s s' e; inversion_clear e; reflexivity.
+  intros u b s s' Pu e; inversion_clear e; reflexivity.
 Qed.
 
-Lemma weak_backward_comap U U' A (f : U -> option U')
+Definition comapProp {U U'} (f : U -> option U') (P : U -> Prop) (u' : U') : Prop :=
+  exists u, f u = Some u' /\ P u.
+
+Lemma weak_backward_comap U U' A (P : U -> Prop) (f : U -> option U')
       (m : biparser U' A)
-      (Hm : weak_backward m) :
-  weak_backward (comap f m).
+      (Hm : weak_backward (comapProp f P) m) :
+  weak_backward P (comap f m).
 Proof.
-  intros u b s s' e.
+  intros u b s s' Pu e.
   cbn in *.
   destruct (f u) eqn:ef; try discriminate.
   destruct snd as [[] | ] eqn:E.
   - cbn in e. rewrite app_nil_r in e. injection e. intros ? ?; subst. clear e.
     eapply Hm in E.
-    rewrite E.
-    eauto.
+    + rewrite E; eauto.
+    + red. exists u; auto.
   - discriminate.
 Qed.
 
-Lemma weak_backward_bind U A B
+Lemma weak_backward_bind U A B (P : U -> Prop)
       (m : biparser U A) (k : A -> biparser U B)
-      (Hm : weak_backward m)
-      (Hk : forall a, weak_backward (k a)) :
-  weak_backward (bind m k).
+      (Hm : weak_backward P m)
+      (Hk : forall a, weak_backward P (k a)) :
+  weak_backward P (bind m k).
 Proof.
-  intros u b s s'.
-  simpl.
+  intros u b s s' Pu.
+  cbn in *.
   destruct (snd m u) as [ [s1 a] | ] eqn:em; simpl; try discriminate.
   destruct (snd (k a) u) as [ [s2 b'] | ] eqn:ek; simpl; try discriminate.
   intros Hmk.
   inversion Hmk.
-  eapply Hm in em.
-  eapply Hk in ek.
+  eapply (Hm _ _ _ _ Pu) in em.
+  eapply (Hk _ _ _ _ _ Pu) in ek.
   rewrite <- app_assoc.
   rewrite em; simpl.
   rewrite ek.
   subst; reflexivity.
 Qed.
 
+Class Compositional
+      {P : Type -> Type -> Type}
+      `{Profmonad P}
+      (R : forall A B, (A -> Prop) -> P A B -> Prop) : Prop :=
+  {
+    CompositionalWithLawful :> ProfmonadLaws _;
+    ret_comp :
+      forall U A (F : U -> Prop) (a : A), R U A F (ret a : P U A);
+    bind_comp :
+      forall U A B (F : U -> Prop) (m : P U A) (k : A -> P U B) ,
+        R U A F m ->
+        (forall a, R U B F (k a)) ->
+        R U B F (bind m k);
+    comap_comp :
+      forall U V A (F : U -> Prop) (f : U -> option V) (m : P V A),
+        R V A (comapProp f F) m ->
+        R U A F (comap f m);
+  }.
+
+#[global]
 Instance Compositional_weak_backward :
   Compositional (@weak_backward) := {
   ret_comp := weak_backward_ret;
@@ -383,53 +409,59 @@ Instance Compositional_weak_backward :
   comap_comp := weak_backward_comap;
 }.
 
-Lemma weak_backward_empty U A :
-  weak_backward (@empty (biparser U) _ _ A).
+Lemma weak_backward_empty U A P :
+  weak_backward P (@empty (biparser U) _ _ A).
 Proof.
   discriminate.
 Qed.
 
-Lemma weak_backward_token :
-  weak_backward biparse_token.
+Lemma weak_backward_token P :
+  weak_backward P biparse_token.
 Proof.
-  intros u b s s' H; inversion H; subst; reflexivity.
+  intros u b s s' Pu H; inversion H; subst; reflexivity.
 Qed.
 
-Lemma weak_forward_ret U A (a : A) : @weak_forward U A (ret a).
+Lemma weak_forward_ret U A (a : A) : @weak_forward U A (eq a) (ret a).
 Proof.
-  intros u b s s' s'' e e';
-    inversion_clear e; inversion_clear e'; reflexivity.
+  intros b s s' e; inversion_clear e. split; [reflexivity |].
+  intros u s0 e'; inversion_clear e'. reflexivity.
 Qed.
 
-Lemma weak_forward_comap U U' A (f : U -> option U')
+Ltac inv H := inversion H; subst; clear H.
+
+Lemma weak_forward_comap U U' A P (f : U -> option U')
       (m : biparser U' A)
-      (Hm : weak_forward m) :
-  weak_forward (comap f m).
+      (Hm : weak_forward P m) :
+  weak_forward P (comap f m).
 Proof.
-  intros u b s s' s'' e e'.
+  intros b s s' e.
   cbn in *.
+  destruct fst as [[]|] eqn:E1; cbn in e; inversion e; subst.
+  destruct (Hm _ _ _ E1).
+  split; [auto|intros u s0].
   destruct (f u) eqn:ef; try discriminate.
-  destruct fst as [[]|] eqn:E1; try discriminate.
-  destruct snd as [[]|] eqn:E2; try discriminate.
-  cbn in *.
-  injection e; injection e'; intros; subst; clear e e'.
+  destruct snd as [[]|] eqn:E2; cbn; try discriminate.
+  intros E; inv E.
   rewrite app_nil_r.
   eapply Hm; eassumption.
 Qed.
 
-Lemma weak_forward_bind U A B
+Lemma weak_forward_bind U A B P Q
       (m : biparser U A) (k : A -> biparser U B) (f : B -> option A)
       (Hf : forall a, (x <- k a;; ret (f x)) = (x <- k a;; ret (Some a)))
-      (Hm : weak_forward m)
-      (Hk : forall a, weak_forward (k a)) :
-  weak_forward (bind m k).
+      (Hm : weak_forward P m)
+      (Hk : forall a, P a -> weak_forward Q (k a)) :
+  weak_forward Q (bind m k).
 Proof.
-  intros u b s01 s1 s0 Hparse Hprint.
+  intros b s01 s1 Hparse.
   simpl in *.
   destruct fst as [ [a1 s__m1] | ] eqn:em1 in Hparse; try discriminate;
     simpl in Hparse;
     destruct fst as [ [b1 s__mk1] | ] eqn:ek1 in Hparse; try discriminate;
     inversion Hparse; clear Hparse; subst.
+  destruct (Hm _ _ _ em1) as [Pa Hm'].
+  destruct (Hk _ Pa _ _ _ ek1) as [Qb Hk'].
+  split; [ auto | intros u s0 Hprint].
   destruct snd as [ [s__m2 a2] | ] eqn:em2 in Hprint; try discriminate;
     simpl in Hprint;
     destruct snd as [ [s__mk2 b2] | ] eqn:ek2 in Hprint; try discriminate;
@@ -445,12 +477,51 @@ Proof.
     reflexivity.
   }
   subst.
-  specialize (Hm u a1 s01 s__m1 s__m2 em1 em2).
-  specialize (Hk a1 u b s__m1 s1 s__mk2 ek1 ek2).
-  subst.
-  apply app_assoc.
+  rewrite <- app_assoc, <- (Hk' _ _ ek2), <- (Hm' _ _ em2). reflexivity.
 Qed.
 
+Class Quasicompositional
+      {P : Type -> Type -> Type}
+      `{Profmonad P}
+      (R : forall A B, (B -> Prop) -> P A B -> Prop) : Prop :=
+  {
+    ret_comp' :
+      forall A0 A a, R A0 A (eq a) (ret a);
+    bind_comp' :
+      forall U A B F G (m : P U A) (k : A -> P U B) (f : B -> option A),
+        (forall a, (x <- k a;; ret (f x)) = (x <- k a;; ret (Some a))) ->
+        R U A F m ->
+        (forall a, F a -> R U B G (k a)) ->
+        R U B G (bind m k);
+    comap_comp' :
+      forall U V A F (f : U -> option V) (m : P V A),
+        R V A F m -> R U A F (comap f m)
+  }.
+
+Lemma bind_comap_comp' {P} {R : forall A B, (B -> Prop) -> P A B -> Prop}
+    `{Quasicompositional P R}
+  : forall A B F G (m : P A A) (k : A -> P B B) (f : B -> option A),
+      (forall a, (x <- k a;; ret (f x)) = (x <- k a;; ret (Some a))) ->
+      R A A F m ->
+      (forall a, R B B G (k a)) ->
+      R B B G (bind (comap f m) k).
+Proof.
+  intros. eapply (bind_comp' _ _ _ _ _ _ _ f); eauto.
+  apply comap_comp'; eauto.
+Qed.
+
+Lemma weaken_weak_forward {U A} (P Q : A -> Prop)
+    (F : forall x, P x -> Q x)
+    (u : biparser U A)
+  : weak_forward P u -> weak_forward Q u.
+Proof.
+  unfold weak_forward.
+  intros H0 a s01 s1 Hfst.
+  specialize (H0 a s01 s1 Hfst).
+  split; [apply F|]; apply H0.
+Qed.
+
+#[global]
 Instance Quasicompositional_weak_forward :
   Quasicompositional (@weak_forward) := {
   ret_comp' := weak_forward_ret;
@@ -459,15 +530,15 @@ Instance Quasicompositional_weak_forward :
 }.
 
 Lemma weak_forward_empty U A :
-  weak_forward (@empty (biparser U) _ _ A).
+  weak_forward (fun _ => False) (@empty (biparser U) _ _ A).
 Proof.
   discriminate.
 Qed.
 
 Lemma weak_forward_token :
-  weak_forward biparse_token.
+  weak_forward (fun _ => True) biparse_token.
 Proof.
-  intros u b s s' s'' H1 H2.
+  intros b s s' H1. split; [auto | intros u s0 H2].
   destruct s; simpl in *.
   - discriminate.
   - inversion H1; inversion H2; subst.
@@ -476,18 +547,18 @@ Qed.
 
 (**)
 
-Lemma weak_forward_digit {b} : weak_forward (biparse_digit b).
+Lemma weak_forward_digit {b} : weak_forward (fun _ => True) (biparse_digit b).
 Proof.
   unfold biparse_digit; intros.
-  apply bind_comap_comp'.
+  eapply bind_comap_comp'.
   { intros a; destruct lt_dec; cbn; reflexivity. }
   { apply weak_forward_token. }
   { intros a; destruct lt_dec.
-    - apply weak_forward_ret.
-    - apply weak_forward_empty. }
+    - eapply weaken_weak_forward, weak_forward_ret; constructor.
+    - eapply weaken_weak_forward, weak_forward_empty; constructor. }
 Qed.
 
-Lemma weak_backward_digit {b} : weak_backward (biparse_digit b).
+Lemma weak_backward_digit {b} P : weak_backward P (biparse_digit b).
 Proof.
   unfold biparse_digit.
   apply bind_comp.
@@ -498,12 +569,38 @@ Proof.
     + apply weak_backward_empty.
 Qed.
 
-Lemma weak_backward_replicate {A} {n} {p : biparser A A}
-  : weak_backward p ->
-    weak_backward (replicate n p).
+Lemma strengthen_weak_backward {U A} (P Q : _ -> Prop) (p : biparser U A)
+  : (forall u, P u -> Q u) ->
+    weak_backward Q p -> weak_backward P p.
 Proof.
-  apply replicate_comp; typeclasses eauto.
+  unfold weak_backward. eauto.
 Qed.
+
+Lemma weak_backward_replicate {A} {n} {p : biparser A A} (P Q : _ -> Prop)
+  : (forall xs, Q xs -> length xs = n /\ Forall P xs) ->
+    weak_backward P p ->
+    weak_backward Q (replicate n p).
+Proof.
+  intros F Hp.
+  revert Q F; induction n; cbn [replicate]; intros.
+  - apply weak_backward_ret.
+  - apply bind_comp.
+    { apply comap_comp.
+      eapply strengthen_weak_backward; [ | apply Hp ].
+      intros u [? [? ?]].
+      destruct x; inv H.
+      apply F in H0.
+      apply (Forall_inv (proj2 H0)). }
+    intros. apply bind_comp.
+    { apply comap_comp.
+      apply IHn.
+      intros xs [? [? ?]]. destruct x; inv H.
+      apply F in H0.
+      destruct H0.
+      inv H. inv H0. split; auto. }
+    intros; apply weak_backward_ret.
+Qed.
+
 
 Lemma weak_forward_replicate {A} {n} {p : biparser A A}
   : weak_forward p ->
@@ -591,3 +688,28 @@ Proof.
   2:{ intros a; apply weak_forward_replicate. apply weak_forward_token. }
   { apply replicate_length_. }
 Qed.
+
+Lemma purify_bind {U A B} (p : biparser U A) (k : A -> biparser U B)
+  : forall u, purify (bind p k) u = bind (purify p u) (fun a => purify (k a) u).
+Proof.
+  intros u.
+  unfold purify; cbn.
+  destruct (snd p u) as [[] | ]; cbn; [ | reflexivity ].
+  destruct (snd (k a) u) as [[] | ]; cbn; reflexivity.
+Qed.
+
+Lemma purify_comap {U V A} (p : biparser V A) (f : U -> option V)
+  : forall u, purify (comap f p) u = bind (f u) (purify p).
+Proof.
+  intros u; unfold purify; cbn.
+  destruct (f u); cbn; [ | reflexivity ].
+  destruct (snd p v) as [[] |]; cbn; reflexivity.
+Qed.
+
+Theorem aligned_string : aligned biparse_string.
+Proof.
+  intros s.
+  unfold biparse_string.
+  rewrite purify_bind.
+  rewrite purify_comap.
+  cbn [bind Monad_option bind_option].
