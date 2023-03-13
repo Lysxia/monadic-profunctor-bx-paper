@@ -16,7 +16,8 @@ Implicit Type P : Type -> Type -> Type.
 (* begin hide *)
 From Coq Require Import
   FunctionalExtensionality
-  List.
+  List
+  Setoid Morphisms.
 Import ListNotations.
 
 From Profmonad Require Import
@@ -43,13 +44,35 @@ Notation "x <- m ;; k" := (bind m (fun x => k))
 (at level 90, right associativity).
 Infix ">>=" := bind (at level 61, left associativity).
 
+Class Setoid (A : Type) : Type :=
+  { equiv : A -> A -> Prop
+  ; equivalence_equiv :> Equivalence equiv
+  }.
+
+Notation Eq1 M := (forall A, Setoid (M A)).
+Notation Eq2 P := (forall U A, Setoid (P U A)).
+
+Declare Scope equiv_scope.
+#[global] Open Scope equiv_scope.
+
+Infix "==" := equiv (at level 90) : equiv_scope.
+
+
+#[global]
+Instance Setoid_Fun (A B : Type) `{Setoid_B : Setoid B} : Setoid (A -> B) :=
+  {| equiv := pointwise_relation A equiv
+  ;  equivalence_equiv := _
+  |}.
+
 (** *** Laws *)
 
-Class MonadLaws (M : Type -> Type) {Monad_M : Monad M} : Prop :=
-  { bind_ret : forall A (m : M A), bind m ret = m;
-    ret_bind : forall A B (a : A) (k : A -> M B), bind (ret a) k = k a;
+Class MonadLaws (M : Type -> Type) {Monad_M : Monad M} {Eq_M : Eq1 M} : Prop :=
+  { bind_ret : forall A (m : M A), bind m ret == m;
+    ret_bind : forall A B (a : A) (k : A -> M B), bind (ret a) k == k a;
     bind_bind : forall A B C (m : M A) (k : A -> M B) (h : B -> M C),
-      bind (bind m k) h = bind m (fun a => bind (k a) h);
+      bind (bind m k) h == bind m (fun a => bind (k a) h);
+    Proper_bind :> forall A B,
+      Proper (equiv ==> pointwise_relation A equiv ==> equiv) (bind (A := A) (B := B))
   }.
 
 (** *** Derived operations and laws *)
@@ -59,30 +82,26 @@ Definition map {M : Type -> Type} `{Monad_M : Monad M} {A B : Type}
   x <- m;; ret (f x).
 
 Lemma map_id `{MonadLaws M} :
-  forall A, map (@id A) = @id (M A).
+  forall A, map (@id A) == @id (M A).
 Proof.
-  intros A; apply functional_extensionality; intros u.
-  unfold map. rewrite bind_ret.
-  reflexivity.
+  intros A x. apply bind_ret.
 Qed.
 
 Lemma map_map `{MonadLaws M} :
   forall A B C (f : A -> B) (g : B -> C),
-    map g ∘ map f = map (g ∘ f).
+    map g ∘ map f == map (g ∘ f).
 Proof.
-  intros A B C f g. apply functional_extensionality; intros u.
+  intros A B C f g u.
   unfold map, compose. rewrite bind_bind.
-  f_equal.
-  apply functional_extensionality; intros a.
-  rewrite ret_bind.
+  setoid_rewrite ret_bind.
   reflexivity.
 Qed.
 
 Lemma map_ret `{MonadLaws M} :
   forall A B (f : A -> B) (x : A),
-    map f (ret x) = ret (f x).
+    map f (ret x) == ret (f x).
 Proof.
-  intros. unfold map. rewrite ret_bind. reflexivity.
+  intros *; unfold map. rewrite ret_bind. reflexivity.
 Qed.
 
 (** ** Monads with failure *)
@@ -93,13 +112,12 @@ Class MonadPartial M `{Monad M} :=
 Arguments empty {M _ _ A}.
 
 Class MonadPartialLaws (M : Type -> Type)
-      `{MonadPartial_M : MonadPartial M} : Prop :=
+      `{MonadPartial_M : MonadPartial M}
+      `{Eq1_M : Eq1 M} : Prop :=
   { partial_MonadLaws :> MonadLaws _;
     partial_left_zero : forall A B (k : A -> M B),
-      bind empty k = empty;
+      bind empty k == empty;
   }.
-
-Arguments MonadPartialLaws {_ _} MonadPartial_M.
 
 Definition ret_opt {M : Type -> Type}
            `{Monad_M : Monad M} `{MonadPartial_M : MonadPartial M}
@@ -117,39 +135,46 @@ Definition map_opt {M : Type -> Type}
   x <- m;; ret_opt (f x).
 
 Lemma map_empty {M} `{MonadPartialLaws M} {A B} (f : A -> B)
-  : map f empty = empty.
+  : map f empty == empty.
 Proof.
   unfold map.
   apply partial_left_zero.
 Qed.
 
+#[global]
+Instance Eq1_default (M : Type -> Type) : Eq1 M | 9 :=
+  fun A => {| equiv := eq |}.
+
 (** ** Example: the [option] monad **)
 
+#[global]
 Instance Monad_option : Monad option :=
   {| ret _ a := Some a;
      bind := @bind_option;
   |}.
 
+#[global]
 Instance MonadLaws_option : MonadLaws option.
 Proof.
-  constructor.
+  constructor; unfold equiv, Eq1_default; cbn.
   - intros A []; auto.
   - intros; auto.
   - intros A B C m k h; simpl.
     destruct m as [a|]; simpl; auto;
       destruct (k a) as [b|]; simpl; auto;
         destruct (h b); simpl; auto.
+  - unfold Proper, respectful. intros * <- * Hf. destruct x; cbn; [apply Hf | reflexivity].
 Qed.
 
+#[global]
 Instance MonadPartial_option : MonadPartial option :=
   { empty _ := None }.
 
-Instance MonadPartialLaws_option :
-  MonadPartialLaws MonadPartial_option.
+Instance MonadPartialLaws_option : MonadPartialLaws option.
 Proof.
   constructor.
   - typeclasses eauto.
-  - auto.
+  - cbn; reflexivity.
 Qed.
 
 Fixpoint traverse_option {A B} (f : A -> option B) (xs : list A) : option (list B) :=
@@ -172,11 +197,12 @@ Qed.
 
 (** *** Laws *)
 
-Class MonadMorphism {M N} `{Monad M} `{Monad N}
+Class MonadMorphism {M N} `{Monad M} `{Monad N} `{Eq1 M} `{Eq1 N}
       (f : forall {A}, M A -> N A) :=
-  { morph_ret : forall A (a : A), f (ret a) = ret a;
+  { morph_ret : forall A (a : A), f (ret a) == ret a;
     morph_bind : forall A B (m : M A) (k : A -> M B),
-        f (bind m k) = bind (f m) (fun a => f (k a));
+        f (bind m k) == bind (f m) (fun a => f (k a));
+    Proper_morph : forall A, Proper (equiv ==> equiv) (@f A)
   }.
 
 (** ** Profunctors *)
@@ -191,13 +217,16 @@ Class Profunctor (P : Type -> Type -> Type) : Type :=
 
 (** *** Laws *)
 
-Class ProfunctorLaws (P : Type -> Type -> Type) {Profunctor_P : Profunctor P} : Prop :=
-  { dimap_id : forall U A, dimap (@id U) (@id A) = @id (P U A)
+Class ProfunctorLaws (P : Type -> Type -> Type) {Profunctor_P : Profunctor P} {Eq2_P : Eq2 P} : Prop :=
+  { dimap_id : forall U A, dimap (@id U) (@id A) == @id (P U A)
   ; dimap_compose :
       forall U V W A B C
         (f1 : W -> V) (f2 : V -> U)
         (g1 : B -> C) (g2 : A -> B),
-        (dimap f1 g1 ∘ dimap f2 g2) = dimap (f2 ∘ f1) (g1 ∘ g2)
+        (dimap f1 g1 ∘ dimap f2 g2) == dimap (f2 ∘ f1) (g1 ∘ g2)
+  ; Proper_dimap :> forall U V A B,
+      Proper (pointwise_relation U eq ==> pointwise_relation A eq ==> equiv ==> equiv)
+             (dimap (U := U) (V := V) (A := A) (B := B))
   }.
 
 (** ** Partial profunctors *)
@@ -212,11 +241,12 @@ Class PartialProfunctor (P : Type -> Type -> Type) : Type :=
 
 (** *** Laws *)
 
-Class PartialProfunctorLaws (P : Type -> Type -> Type) {PartialProfunctor_P : PartialProfunctor P} : Prop :=
+Class PartialProfunctorLaws (P : Type -> Type -> Type) {PartialProfunctor_P : PartialProfunctor P} {Eq2_P : Eq2 P} : Prop :=
   { asProfunctorLaws :> ProfunctorLaws P
   ; toFailureP_dimap :
        forall U V A B (f : U -> V) (g : A -> B) (u : P V A),
-         toFailureP (dimap f g u) = dimap (option_map f) g (toFailureP u)
+         toFailureP (dimap f g u) == dimap (option_map f) g (toFailureP u)
+  ; Proper_toFailureP :> forall A B, Proper (equiv ==> equiv) (toFailureP (A := A) (B := B))
   }.
 
 
@@ -249,53 +279,66 @@ Notation "x <-( f ) m ;; m2" :=
 (** *** Laws *)
 
 Class ProfmonadLaws (P : Type -> Type -> Type)
-      {Profmonad_P : Profmonad P} :=
+      {Profmonad_P : Profmonad P} {Eq2_P : Eq2 P} :=
   { asMonadLaws : forall U, MonadLaws (P U)
   ; asPartialProfunctorLaws : PartialProfunctorLaws P
-  ; map_dimap : forall U A B (f : A -> B) (u : P U A), map f u = dimap id f u
+  ; map_dimap : forall U A B (f : A -> B) (u : P U A), map f u == dimap id f u
   ; comap_morphism : forall U V (f : U -> V),
       MonadMorphism (fun A => comap (fun u => Some (f u)));
   }.
 
+#[global]
 Existing Instance comap_morphism.
+#[global]
 Existing Instance asMonadLaws.
+#[global]
 Existing Instance asPartialProfunctorLaws.
-
 
 (** *** Derived laws *)
 
+#[global]
+Instance Proper_comap {P} `{PartialProfunctorLaws P} {U V A} : Proper (pointwise_relation U eq ==> equiv ==> equiv) (comap (U := U) (V := V) (A := A)).
+Proof.
+  unfold Proper, respectful.
+  intros * Hf * Hp. unfold comap. apply Proper_dimap; reflexivity + auto.
+  apply Proper_toFailureP; assumption.
+Qed.
+
 Lemma comap_morph_ret {P} `{ProfmonadLaws P} U V A
       (f : U -> V) (a : A) :
-  comap (fun u => Some (f u)) (ret a) = ret a.
+  comap (fun u => Some (f u)) (ret a) == ret a.
 Proof.
-  match goal with
-  | [ |- ?comap1 _ = _ ] =>
-    let comap' := (eval pattern A in comap1) in
-    change (comap' (ret a) = ret a)
-  end.
-  apply morph_ret.
+  apply (morph_ret (f := fun A x => comap (fun u => Some (f u)) x)).
 Qed.
 
 Lemma comap_morph_bind {P} `{ProfmonadLaws P} U V A B
       (f : V -> U) (m : P U A) (k : A -> P U B) :
   let h A := comap (fun u => Some (f u)) : P U A -> P V A in
   h B (bind m k)
-  = bind (h A m) (fun a => h B (k a)).
+  == bind (h A m) (fun a => h B (k a)).
 Proof.
   apply morph_bind.
 Qed.
 
+Lemma equiv_apply {A B} `{Setoid B} (f g : A -> B) (x : A)
+  : f == g -> f x == g x. 
+Proof.
+  intros Hf; apply Hf.
+Qed.
+
 Lemma natural_comap {P} `{ProfmonadLaws P} U U' A B
     (f : U -> option U') (u : P U' A) (k : A -> B)
-  : comap f (bind u (fun x => ret (k x))) = bind (comap f u) (fun x => ret (k x)).
+  : comap f (bind u (fun x => ret (k x))) == bind (comap f u) (fun x => ret (k x)).
 Proof.
   do 2 change (bind ?u _) with (map k u).
   rewrite 2 map_dimap.
   unfold comap. rewrite toFailureP_dimap.
   do 2 change (dimap ?f ?f' (?g ?x)) with (compose (dimap f f') g x).
-  rewrite 2 dimap_compose. f_equal.
-  apply functional_extensionality; intros x; unfold compose, id.
-  destruct (f x); reflexivity.
+  apply equiv_apply.
+  rewrite 2 dimap_compose.
+  intros p.
+  apply Proper_dimap; try reflexivity.
+  intros x; unfold compose, id; destruct (f x); reflexivity.
 Qed.
 
 (** ** Profmonad morphisms *)
@@ -303,11 +346,11 @@ Qed.
 (** *** Laws *)
 
 Class ProfmonadMorphism {P Q : TyCon2}
-      `{Profmonad P} `{Profmonad Q}
+      `{Profmonad P} `{Profmonad Q} `{Eq2 P} `{Eq2 Q}
       (phi : forall U V, P U V -> Q U V) : Prop := {
     asMonadMorphism :> forall U, MonadMorphism (phi U);
     morph_comap : forall U U' V (f : U -> option U') (m : P U' V),
-        phi _ _ (comap f m) = comap f (phi _ _ m);
+        phi _ _ (comap f m) == comap f (phi _ _ m);
   }.
 
 (** ** [Fwd] promonad ***)
@@ -319,51 +362,75 @@ Definition Fwd (M : Type -> Type) : TyCon2 :=
 
 (** *** Instances *)
 
+#[global]
 Instance Monad_Fwd (M : Type -> Type) `{Monad M} :
   forall U, Monad (Fwd M U) :=
   fun U => _.
 
+#[global]
 Instance MonadLaws_Fwd (M : Type -> Type) `{MonadLaws M} :
   forall U, MonadLaws (Fwd M U).
 Proof.
   intro U; constructor; apply H.
 Defined.
 
+#[global]
 Instance MonadPartial_Fwd (M : Type -> Type) `{MonadPartial M} :
   forall U, MonadPartial (Fwd M U) :=
   { empty _ := empty }.
 
+#[global]
 Instance MonadPartialLaws_Fwd (M : Type -> Type)
          `{MonadPartialLaws M} :
-  forall U, MonadPartialLaws (MonadPartial_Fwd M U).
+  forall U, MonadPartialLaws (Fwd M U).
 Proof.
   constructor.
   - typeclasses eauto.
   - intros; simpl; apply partial_left_zero.
 Defined.
 
+#[global]
 Instance Profunctor_Fwd (M : Type -> Type) `{Monad M} :
   Profunctor (Fwd M) :=
   fun U V A B _f g m => map g m.
 
+#[global]
 Instance PartialProfunctor_Fwd (M : Type -> Type) `{Monad M} :
   PartialProfunctor (Fwd M) :=
   {| toFailureP := fun _ _ m => m |}.
 
+#[global]
 Instance Profmonad_Fwd (M : Type -> Type) `{Monad M} :
   Profmonad (Fwd M) :=
   Build_Profmonad _ _ _.
 
+#[global]
+Instance Setoid_Fwd (M : Type -> Type) `{H : Eq1 M} U : Eq1 (Fwd M U) :=
+  H.
+
+#[global]
+Instance Proper_map {M : Type -> Type} `{MonadLaws M} {A B}
+  : Proper (pointwise_relation A eq ==> equiv ==> equiv) (map (A := A) (B := B)).
+Proof.
+  unfold Proper, respectful, map.
+  intros * Hf * Hm; apply Proper_bind; auto.
+  intros ?; rewrite Hf; reflexivity.
+Qed.
+
+#[global]
 Instance PartialProfunctorLaws_Fwd (M : Type -> Type) `{MonadLaws M} : PartialProfunctorLaws (Fwd M).
 Proof.
   constructor.
   - constructor.
-    + intros U A. unfold dimap. unfold asProfunctor. cbn. unfold Profunctor_Fwd.
+    + Set Printing All. intros U A x. unfold dimap. unfold asProfunctor. Set Printing All. cbn. unfold Profunctor_Fwd.
       apply map_id.
     + intros. cbv [ dimap asProfunctor PartialProfunctor_Fwd Profunctor_Fwd ].
       rewrite map_map.
       reflexivity.
+    + intros *. unfold Proper, respectful. intros * Hf * Hg * Hx. cbv [dimap asProfunctor PartialProfunctor_Fwd Profunctor_Fwd].
+      apply Proper_map; auto.
   - intros. reflexivity.
+  - intros. unfold Proper, respectful. intros * Hf; apply Hf.
 Qed.
 
 Instance ProfmonadLaws_Fwd (M : Type -> Type) `{MonadLaws M} :
@@ -384,6 +451,7 @@ Proof.
       f_equal.
       rewrite bind_ret.
       reflexivity.
+    + intros A. unfold Proper, respectful; intros. eapply Proper_comap; reflexivity + auto.
 Qed.
 
 (** ** [Bwd] promonad ***)
@@ -395,19 +463,28 @@ Definition Bwd (M : Type -> Type) : Type -> Type -> Type :=
 
 (** *** Instances *)
 
+#[global]
 Instance Monad_Bwd (M : Type -> Type) `{Monad M} :
   forall U, Monad (Bwd M U) :=
   { ret A a := fun u => ret a;
     bind A B m k := fun u => bind (m u) (fun a => k a u);
   }.
 
+#[global]
+Instance Setoid_Bwd {M} `{Eq1 M} : Eq2 (Bwd M) := 
+  fun _ _ => _.
+
+#[global]
 Instance MonadLaws_Bwd (M : Type -> Type) `{MonadLaws M} :
   forall U, MonadLaws (Bwd M U).
 Proof.
-  constructor;
-    intros;
-    apply functional_extensionality; intro u; simpl;
-    apply H.
+  constructor; intros; intros ?; cbn.
+  - apply bind_ret.
+  - rewrite ret_bind. reflexivity.
+  - rewrite bind_bind. reflexivity.
+  - unfold respectful. intros. intros u; cbn.
+    apply Proper_bind; auto.
+    intros a. apply H1.
 Defined.
 
 Instance MonadPartial_Bwd (M : Type -> Type) `{MonadPartial M} :
@@ -416,12 +493,10 @@ Instance MonadPartial_Bwd (M : Type -> Type) `{MonadPartial M} :
 
 Instance MonadPartialLaws_Bwd (M : Type -> Type)
          `{MonadPartialLaws M} :
-  forall U, MonadPartialLaws (MonadPartial_Bwd M U).
+  forall U, MonadPartialLaws (Bwd M U).
 Proof.
   constructor; try typeclasses eauto.
-  intros.
-  apply functional_extensionality; intro u.
-  simpl; apply partial_left_zero.
+  intros. intros u; cbn. apply partial_left_zero.
 Defined.
 
 Instance Profunctor_Bwd (M : Type -> Type) `{MonadPartial M} :
@@ -446,19 +521,28 @@ Instance PartialProfunctorLaws_Bwd M `{MonadPartialLaws M} :
 Proof.
   constructor.
   - constructor.
-    + intros; cbn; unfold Profunctor_Bwd.
-      rewrite map_id.
-      reflexivity.
+    + intros; cbn; unfold Profunctor_Bwd. intros m u.
+      apply map_id.
     + intros; cbn; unfold Profunctor_Bwd, compose.
       change (map ?f (map ?g ?x)) with (compose (map f) (map g) x).
-      rewrite map_map.
-      reflexivity.
+      intros m w.
+      apply map_map.
+    + intros *. unfold Proper, respectful. cbn. unfold pointwise_relation, Profunctor_Bwd. cbn. intros.
+      apply Proper_map; eauto.
+      rewrite H1; auto.
   - intros; cbn; unfold Profunctor_Bwd.
-    apply functional_extensionality; intros [ x | ]; cbn.
+    intros [ x | ]; cbn.
     + reflexivity.
     + rewrite map_empty; reflexivity.
+  - unfold Proper, respectful; cbn. intros. intros []; cbn; auto. reflexivity.
 Qed.
 
+Lemma map_id' {M} `{MonadLaws M} {A} (m : M A) : map id m == m.
+Proof.
+  apply map_id.
+Qed.
+
+#[global]
 Instance ProfmonadLaws_Bwd (M : Type -> Type) `{MonadPartialLaws M} :
   ProfmonadLaws (Bwd M).
 Proof.
@@ -468,13 +552,11 @@ Proof.
   - reflexivity.
   - constructor.
     + intros; cbn. cbv [Profunctor_Bwd].
-      apply functional_extensionality; intros u.
-      rewrite map_id.
-      reflexivity.
-    + intros; cbn. cbv [Profunctor_Bwd].
-      apply functional_extensionality; intros u.
-      rewrite !map_id.
-      reflexivity.
+      intros u. apply map_id.
+    + intros; cbn. cbv [Profunctor_Bwd]. intros u. rewrite 2 map_id'.
+      apply Proper_bind; [ reflexivity | intros ? ].
+      rewrite map_id'. reflexivity.
+    + intros A. apply Proper_comap. reflexivity.
 Qed.
 
 (** ** Product promonad ***)
@@ -495,15 +577,44 @@ Instance Monad_Product P1 P2 U
        bind (snd m) (fun a => snd (k a)));
   }.
 
+Definition equiv_prod {A B} (RA : relation A) (RB : relation B) : relation (A * B) :=
+  fun a b => RA (fst a) (fst b) /\ RB (snd a) (snd b).
+
+#[local] Instance Equivalence_equiv_prod {A B} {RA : relation A} {RB : relation B}
+  `(!Equivalence RA) `(!Equivalence RB) : Equivalence (equiv_prod RA RB).
+Proof.
+  constructor.
+  - intros; split; reflexivity.
+  - intros ? ? Hxy; split; symmetry; apply Hxy.
+  - intros ? ? ? Hxy Hyz; split; etransitivity; apply Hxy + apply Hyz.
+Qed.
+
+#[global]
+Instance Setoid_Product `(Eq2 P1) `(Eq2 P2) : Eq2 (Product P1 P2) :=
+  fun U A => {| equiv := equiv_prod equiv equiv |}.
+
+#[global]
+Instance Proper_pair {P Q} `{Eq2 P, Eq2 Q} {U V} : Proper (equiv ==> equiv ==> equiv) (@pair (P U V) (Q U V)).
+Proof.
+  unfold Proper, respectful; constructor; auto.
+Qed.
+
+#[global]
 Instance MonadLaws_Product P1 P2 U
-         `{MonadLaws (P1 U),
-           MonadLaws (P2 U)} :
+         `{Monad (P1 U), Monad (P2 U)}
+         `{Eq2 P1, Eq2 P2}
+         `{!MonadLaws (P1 U), !MonadLaws (P2 U)} :
   MonadLaws (Product P1 P2 U).
 Proof.
   constructor.
-  - intros A []; simpl; f_equal; apply bind_ret.
-  - intros A B a k; simpl; do 2 rewrite ret_bind; destruct (k a); auto.
-  - intros A B C m k h; simpl; f_equal; rewrite bind_bind; auto.
+  - intros A []; constructor; cbn; apply bind_ret.
+  - intros A B a k; simpl. do 2 rewrite ret_bind; destruct (k a); reflexivity.
+  - intros A B C m k h; simpl; rewrite 2 bind_bind; reflexivity.
+  - intros A B; simpl; unfold Proper, respectful; intros; constructor; apply Proper_bind.
+    + apply H1.
+    + intros ?; apply H2.
+    + apply H1.
+    + intros ?; apply H2.
 Qed.
 
 Instance MonadPartial_Product P1 P2 U
@@ -513,12 +624,14 @@ Instance MonadPartial_Product P1 P2 U
   { empty _ := (empty, empty) }.
 
 Instance MonadPartialLaws_Product P1 P2 U
-         `{MonadPartialLaws (P1 U),
-           MonadPartialLaws (P2 U)} :
-  MonadPartialLaws (MonadPartial_Product P1 P2 U).
+         `{Eq2 P1, Eq2 P2}
+         `{MonadPartial (P1 U), MonadPartial (P2 U)}
+         `{!MonadPartialLaws (P1 U),
+           !MonadPartialLaws (P2 U)} :
+  MonadPartialLaws (Product P1 P2 U).
 Proof.
   constructor; try typeclasses eauto.
-  intros. simpl. f_equal; apply partial_left_zero.
+  intros. simpl. constructor; apply partial_left_zero.
 Defined.
 
 Instance Profunctor_Product P1 P2 `{Profunctor P1} `{Profunctor P2} : Profunctor (Product P1 P2) :=
@@ -544,15 +657,15 @@ Proof.
   constructor.
   - constructor.
     + intros; cbn; unfold Profunctor_Product.
-      rewrite 2 dimap_id.
-      apply functional_extensionality; intros []; reflexivity.
+      intros p; constructor; cbn; apply dimap_id.
     + intros; cbn; unfold Profunctor_Product.
-      unfold compose; cbn.
-      change (dimap ?f1 ?g1 (dimap ?f2 ?g2 ?x)) with (compose (dimap f1 g1) (dimap f2 g2) x).
-      rewrite 2 dimap_compose.
-      reflexivity.
+      unfold compose; cbn. constructor; cbn; apply dimap_compose.
+    + unfold Proper, respectful; cbn; constructor; cbn.
+      * apply Proper_dimap; auto. apply H3.
+      * apply Proper_dimap; auto. apply H3.
   - intros; cbn; unfold Profunctor_Product.
-    f_equal; rewrite toFailureP_dimap; reflexivity.
+    f_equal; rewrite 2 toFailureP_dimap; reflexivity.
+  - constructor; cbn; apply Proper_toFailureP; apply H1.
 Qed.
 
 Instance LawfulProfmonad_Product P1 P2
@@ -563,12 +676,13 @@ Proof.
   - exact (fun U => MonadLaws_Product P1 P2 U).
   - exact (PartialProfunctorLaws_Product P1 P2).
   - unfold map, dimap, asProfunctor, asPartialProfunctor, Profmonad_Product, PartialProfunctor_Product, Profunctor_Product; cbn.
-    intros; f_equal; apply map_dimap.
+    intros; constructor; apply map_dimap.
   - constructor.
     + intros; cbn. cbv [Profunctor_Product].
-      f_equal; apply comap_morph_ret + apply comap_morph_bind; auto.
+      constructor; apply comap_morph_ret + apply comap_morph_bind; auto.
     + intros; cbn; cbv [Profunctor_Product].
-      f_equal; apply comap_morph_ret + apply comap_morph_bind; auto.
+      constructor; apply comap_morph_ret + apply comap_morph_bind; auto.
+    + intros; apply Proper_comap; reflexivity.
 Qed.
 
 (*****)
@@ -593,6 +707,9 @@ Definition hom (P1 P2 : Type -> Type -> Type) : Type :=
 
 Definition pfunction (A B : Type) : Type := A -> option B.
 
+#[global] Instance Setoid_pfunction {A B} : Setoid (pfunction A B) :=
+  {| equiv := pointwise_relation A eq |}.
+
 #[global] Instance Monad_pfunction {A} : Monad (pfunction A) := {|
   ret _ a := fun _ => Some a;
   bind _ _ m k u := x <- m u;; k x u;
@@ -616,35 +733,34 @@ Arguments id _ _ /.
 Proof.
   constructor.
   - constructor.
-    + intros a m; apply functional_extensionality; intros x; cbn.
-      destruct m; reflexivity.
+    + intros a m x; cbn. destruct m; reflexivity.
     + intros *; reflexivity.
-    + intros *; apply functional_extensionality; intros x; cbn.
-      destruct m; reflexivity.
+    + intros * x; cbn. destruct m; reflexivity.
+    + unfold Proper, respectful; cbn. intros. intros u.
+      rewrite H. destruct y; cbn; [ rewrite H0 | ]; reflexivity.
   - constructor.
     + constructor.
-      * intros; apply functional_extensionality; intros x; cbn.
-        unfold Profunctor_pfunction. apply functional_extensionality; intros.
+      * intros U A x; cbn.
+        unfold Profunctor_pfunction. intros u.
         destruct x; reflexivity.
-      * intros; apply functional_extensionality; intros; cbn.
-        apply functional_extensionality; intros; cbn. destruct x; reflexivity.
-    + intros. apply functional_extensionality; intros; cbn.
-      destruct x; cbn; reflexivity.
-  - intros *; apply functional_extensionality; intros; cbn.
-    destruct u; reflexivity.
+      * intros * x u; cbn; destruct x; reflexivity.
+      * unfold Proper, respectful. cbv. intros. rewrite H, H1. destruct y1; auto. rewrite H0; auto.
+    + cbv. intros. destruct a; auto.
+    + cbv; intros; destruct a; auto.
+  - cbv; intros; auto.
   - constructor.
-    + reflexivity.
-    + intros. apply functional_extensionality; intros; cbn. destruct m; cbn; reflexivity.
+    + cbv; intros; auto.
+    + cbv; intros; destruct m; auto.
+    + cbv; intros; rewrite H; auto.
 Qed.
 
 (*** Compositionality ***)
 
 Class Compositional
       {P : Type -> Type -> Type}
-      `{Profmonad P}
+      `{ProfmonadLaws P}
       (R : forall A B, P A B -> Prop) : Prop :=
   {
-    CompositionalWithLawful :> ProfmonadLaws _;
     ret_comp :
       forall U A (a : A), R U A (ret a : P U A);
     bind_comp :
@@ -662,14 +778,14 @@ Class Compositional
 
 Class Quasicompositional
       {P : Type -> Type -> Type}
-      `{Profmonad P}
+      `{ProfmonadLaws P}
       (R : forall A B, P A B -> Prop) : Prop :=
   {
     ret_comp' :
       forall A0 A a, R A0 A (ret a);
     bind_comp' :
       forall U A B (m : P U A) (k : A -> P U B) (f : B -> option A),
-        (forall a, (x <- k a;; ret (f x)) = (x <- k a;; ret (Some a))) ->
+        (forall a, (x <- k a;; ret (f x)) == (x <- k a;; ret (Some a))) ->
         R U A m ->
         (forall a, R U B (k a)) ->
         R U B (bind m k);
@@ -681,7 +797,7 @@ Class Quasicompositional
 Lemma bind_comap_comp' {P} {R : forall A B, P A B -> Prop}
     `{Quasicompositional P R}
   : forall A B (m : P A A) (k : A -> P B B) (f : B -> option A),
-      (forall a, (x <- k a;; ret (f x)) = (x <- k a;; ret (Some a))) ->
+      (forall a, (x <- k a;; ret (f x)) == (x <- k a;; ret (Some a))) ->
       R A A m ->
       (forall a, R B B (k a)) ->
       R B B (bind (comap f m) k).
@@ -699,6 +815,7 @@ Qed.
 Definition mrange {M} `{MonadPartial M} {A} (p : A -> bool) (u : M A) : Prop
   := u = (u >>= fun x => if p x then ret x else empty).
 
+(*
 Class Compositional' (P : Type -> Type -> Type) (R : forall A B, P A B -> Prop)
     `{forall U, Monad (P U)}
     `{forall U, @MonadPartial (P U) _}
@@ -749,14 +866,14 @@ Proof.
   - rewrite partial_left_zero.
     apply empty_comp.
 Qed.
+*)
 
 (**)
 
 (* replicate preserves quasicompositional properties *)
 Lemma replicate_comp P
       (R : forall U A, P U A -> Prop)
-      `{ProfmonadLaws P}
-      `{@Quasicompositional P _ R}
+      `{Quasicompositional _ R}
       U A (n : nat) (m : P U A)
   : R _ _ m ->
     R _ _ (replicate n m).
@@ -768,8 +885,7 @@ Proof.
     apply bind_comp' with (f := head); auto.
     { intros a.
       rewrite 2 bind_bind.
-      f_equal.
-      apply functional_extensionality; intros a0.
+      apply Proper_bind; [ reflexivity | ]. intros ?.
       rewrite 2 ret_bind.
       reflexivity.
     }
@@ -813,16 +929,19 @@ Proof.
   intros; f_equal; auto.
 Qed.
 
+(*
 Lemma purify_replicate P
       `{Profmonad P}
+      `{Eq2 P}
       (phi : forall U A, P U A -> pfunction U A) (* promonad morphism *)
-      `{@ProfmonadMorphism _ _ _ _ phi}
+      `{@ProfmonadMorphism _ _ _ _ _ _ phi}
       U A (n : nat) (m : P U A) (xs : list U) :
   length xs = n ->
-  phi _ _ (replicate n m) xs = traverse_option (phi _ _ m) xs.
+  phi _ _ (replicate n m) xs == traverse_option (phi _ _ m) xs.
 Proof.
   intros Hn; subst; induction xs.
-  - simpl; rewrite morph_ret; auto.
+  - cbn [replicate length].
+     
   - cbn [length replicate traverse_option].
     rewrite morph_bind, morph_comap.
     cbn [ bind asMonad Profmonad_pfunction Monad_pfunction ].
@@ -850,10 +969,11 @@ Proof.
   - induction m; cbn; f_equal; auto.
     rewrite flat_map_app; f_equal; auto.
 Qed.
+*)
 
 Class Idiomcompositional
       {P : Type -> Type -> Type}
-      `{Profmonad P}
+      `{ProfmonadLaws P}
       (R : forall A, P A A -> Prop) : Prop :=
   {
     ret_idiomcomp :

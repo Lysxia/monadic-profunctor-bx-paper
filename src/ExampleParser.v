@@ -18,7 +18,9 @@ Generalizable Variables P.
 From Coq Require Import
   FunctionalExtensionality
   Arith
-  List.
+  List
+  Setoid
+  Morphisms.
 Import ListNotations.
 
 From Profmonad Require Import
@@ -93,6 +95,7 @@ Instance Biparser_product P1 P2 `{Biparser P1, Biparser P2} :
 
 (** *** Parser promonad ***)
 
+
 (** Input streams *)
 Definition stream := list t.
 
@@ -114,6 +117,27 @@ Definition flip_bind {A B} (k : A -> m B) : m A -> m B := cofix bind_ u :=
   ;  bind := fun _ _ u k => flip_bind k u
   |}.
 
+#[global] Instance Setoid_delay {A} : Setoid (m A).
+Proof.
+Admitted.
+
+Definition terminates_with {A : Type} (P : A -> Prop) : m A -> Prop.
+Admitted.
+
+Definition may_terminate_with {A : Type} (P : A -> Prop) : m A -> Prop :=
+  fun p => forall u, terminates_with (eq u) p -> P u.
+
+#[global]
+Notation terminates_with' p P := (terminates_with P p) (only parsing).
+
+#[global]
+Notation may_terminate_with' p P := (may_terminate_with P p) (only parsing).
+
+Lemma may_terminate_with_bind {A B} (u : m A) (k : A -> m B) (P : B -> Prop)
+  : may_terminate_with (fun a => may_terminate_with P (k a)) u -> may_terminate_with P (bind u k).
+Proof.
+Admitted.
+
 End Delay.
 
 Notation delay := Delay.m.
@@ -133,8 +157,13 @@ Instance Monad_parser : Monad parser :=
   }.
 
 #[global]
+Instance Setoid_parser : Eq1 parser.
+Admitted.
+
+#[global]
 Instance MonadLaws_parser : MonadLaws parser.
 Proof.
+Admitted. (*
   constructor.
 
   - intros.
@@ -155,10 +184,11 @@ Proof.
     simpl.
     destruct (m s) as [ [ ] | ]; simpl; auto.
 Qed.
+*)
 
 #[global]
 Instance MonadPartial_parser : MonadPartial parser :=
-  { empty := fun _ _ => None }.
+  { empty := fun _ _ => ret None }.
 
 (** **** Parser promonad *)
 
@@ -166,16 +196,17 @@ Definition parser2 := Fwd parser.
 
 Definition Profmonad_parser2 := Profmonad_Fwd parser.
 
-Definition parse_many {A} (u : parser (option A)) : parser (list A) :=
-  match
+Definition parse_many {A} (u : parser (option A)) : parser (list A).
+Admitted.
 
 #[global]
 Instance Biparser_parser2 : Biparser parser2 :=
   { biparse_token s :=
       match s with
-      | [] => None
-      | n :: s' => Some (n, s')
+      | [] => ret None
+      | n :: s' => ret (Some (n, s'))
       end
+  ; biparse_many := fun U A => parse_many
   }.
 
 
@@ -184,6 +215,9 @@ Instance Biparser_parser2 : Biparser parser2 :=
 (** **** Printer monad *)
 
 Definition printer (A : Type) := option (stream * A).
+
+#[global]
+Instance Setoid_printer : Eq1 printer := Eq1_default _.
 
 #[global]
 Instance Monad_printer : Monad printer :=
@@ -200,10 +234,7 @@ Proof.
   constructor.
 
   - intros.
-    destruct m as [[]|]; auto.
-    simpl.
-    rewrite app_nil_r.
-    auto.
+    destruct m as [[]|]; [simpl; rewrite app_nil_r|]; reflexivity.
 
   - intros.
     simpl.
@@ -215,6 +246,8 @@ Proof.
     destruct (h b) as [[]|]; simpl; auto.
     rewrite app_assoc.
     auto.
+  - cbv; intros. subst y; destruct x as [[] |]; [ rewrite <- H0 | reflexivity].
+    destruct x0 as [[] | ]; reflexivity.
 Qed.
 
 #[global]
@@ -222,25 +255,48 @@ Instance MonadPartial_printer : MonadPartial printer :=
   { empty A := None }.
 
 #[global]
-Instance MonadPartialLaws_printer :
-  MonadPartialLaws (MonadPartial_printer).
+Instance MonadPartialLaws_printer : MonadPartialLaws printer.
 Proof.
-  constructor; try typeclasses eauto; auto.
+  constructor; try typeclasses eauto; cbn; auto.
 Qed.
 
 (** **** Printer promonad *)
 
 Definition printer2 := Bwd printer.
 
+Definition print_many {U A} (p : printer2 (option U) (option A)) : printer2 (list U) (list A) :=
+  fix print_many_ xs :=
+    match xs with
+    | nil => 
+      match p None with
+      | Some (s, None) => Some (s, nil)
+      | _ => None
+      end
+    | x :: xs =>
+      match p (Some x) with
+      | Some (s, Some y) => option_map (fun '(ss, ys) => (s ++ ss, y :: ys)) (print_many_ xs)
+      | _ => None
+      end
+    end.
+
 #[global]
 Instance Biparser_printer2 : Biparser printer2 :=
-  { biparse_token := (fun n => Some ([n], n));
+  { biparse_token := (fun n => Some ([n], n))
+  ; biparse_many := (fun _ _ => print_many)
   }.
+
+Definition pure_many {U A} (p : pfunction (option U) (option A)) : pfunction (list U) (list A) :=
+  fix pure_many_ xs :=
+    match xs with
+    | nil => match p None with Some None => Some nil | _ => None end
+    | x :: xs => match p (Some x) with Some (Some y) => option_map (fun ys => y :: ys) (pure_many_ xs) | _ => None end
+    end.
 
 #[global]
 Instance Biparser_pure : Biparser pfunction :=
   {|
     biparse_token := (fun n => Some n) : pfunction nat nat;
+    biparse_many := fun _ _ => pure_many 
   |}.
 
 (* Extract the pure component of the printer *)
@@ -283,7 +339,7 @@ Definition left_round_trip A (P : A -> Prop)
   forall a, P a ->
     match pr a with
     | None => True
-    | Some (s, _) => pa s = Some (a, [])
+    | Some (s, _) => Delay.terminates_with (fun out => out = Some (a, [])) (pa s)
     end.
 
 (* We have proved [biparse_string_left_round_trip] *)
@@ -291,7 +347,8 @@ Definition left_round_trip A (P : A -> Prop)
 Definition right_round_trip A (pa : parser2 A A) (pr : printer2 A A)
   : Prop :=
   forall s,
-    match pa s with
+    Delay.may_terminate_with (fun out =>
+    match out with
     | None => True
     | Some (a, []) =>
       match pr a with
@@ -299,31 +356,34 @@ Definition right_round_trip A (pa : parser2 A A) (pr : printer2 A A)
       | Some (s', _) => s = s'
       end
     | Some _ => True
-    end.
+    end) (pa s).
 
 Definition backward {A} (p : biparser A A) : Prop :=
   forall (a : A) (s s' : list t),
     (exists a', snd p a = Some (s, a')) ->
-    fst p (s ++ s') = Some (a, s').
+    Delay.terminates_with (fun out => out = Some (a, s')) (fst p (s ++ s')).
 
 Definition forward {A} (p : biparser A A) : Prop :=
   forall (a : A) (s01 s1 s0 : list t),
-    fst p s01 = Some (a, s1) ->
+    Delay.may_terminate_with (fun out =>
+    out = Some (a, s1) ->
     (exists a', snd p a = Some (s0, a')) ->
-    s01 = s0 ++ s1.
+    s01 = s0 ++ s1) (fst p s01).
 
 (** *** Weak but compositional roundtrip properties *)
 
 Definition weak_backward {U A} (p : biparser U A) : Prop :=
   forall (u : U) (a : A) (s s' : list t),
     snd p u = Some (s, a) ->
-    fst p (s ++ s') = Some (a, s').
+    Delay.terminates_with' (fst p (s ++ s')) (fun out => out = Some (a, s')).
 
 Definition weak_forward {U A} (p : biparser U A) : Prop :=
-  forall (u : U) (a : A) (s01 s1 s0 : list t),
-    fst p s01 = Some (a, s1) ->
+  forall (a : A) (s01 : list t),
+    Delay.may_terminate_with' (fst p s01) (fun out =>
+    forall u s0 s1,
+    out = Some (a, s1) ->
     snd p u = Some (s0, a) ->
-    s01 = s0 ++ s1.
+    s01 = s0 ++ s1).
 
 (** *** Purification, alignment *)
 
@@ -359,26 +419,128 @@ Theorem backward_aligned {A} (p : biparser A A) :
   weak_backward p ->
   backward p.
 Proof.
+Admitted. (*
   intros ALIGNED WBWD a s s' [a' Ea].
   destruct (ALIGNED a).
   rewrite Ea in H.
   injection H; intros [] [].
   apply (WBWD _ _ _ _ Ea).
-Qed.
+Qed. *)
 
 Theorem forward_aligned {A} (p : biparser A A) :
   aligned p ->
   weak_forward p ->
   forward p.
 Proof.
+Admitted. (*
   intros ALIGNED WFWD a s01 s1 s0 E01 [a' E0].
   destruct (ALIGNED a).
   rewrite E0 in H.
   injection H. intros; subst.
   eapply WFWD; eauto.
-Qed.
+Qed. *)
 
 (** ** Compositionality of weak roundtrip properties *)
+
+Lemma weak_backward_many U A (p : biparser (option U) (option A))
+  (WB : weak_backward p) : weak_backward (biparse_many p).
+Proof.
+  unfold weak_backward.
+  intros u; induction u; cbn; intros.
+  - destruct (snd p None) as [ [ s0 [ | ] ] | ] eqn:E2; inv H.
+    apply (WB _ _ _ s') in E2.
+    admit.
+  - destruct (snd p (Some a)) as [ [ s0 [ | ] ] | ] eqn:E2; try discriminate.
+    destruct (print_many (snd p) u) as [ [] | ] eqn:E2'; inv H.
+    eapply (WB _ _ _ (s1 ++ s')) in E2.
+    admit.
+Admitted.
+
+Definition onlyNil {U} (xs : list U) : option (list U) :=
+  match xs with
+  | nil => Some nil
+  | _ => None
+  end.
+
+Lemma unfold_biparse_many {U A} (p : biparser (option U) (option A))
+  : biparse_many p ==
+    (ox <- comap (fun x => Some (head x)) p ;;
+    match ox with
+    | None => comap onlyNil (ret nil)
+    | Some x => xs <- comap tail (biparse_many p) ;;
+                ret (x :: xs)
+    end).
+Proof.
+  constructor.
+  - admit.
+  - intros u; induction u; cbn.
+    + destruct (snd p None) as [[s [x |]] |] eqn:E2; cbn; try reflexivity.
+      rewrite 2 app_nil_r. reflexivity.
+    + destruct (snd p (Some _)) as [[s [x |]] |] eqn:E2; cbn; try reflexivity.
+      { destruct print_many as [[]|] eqn:E2'; cbn; [ | reflexivity ].
+        rewrite 3 app_nil_r. reflexivity. }
+Admitted.
+
+#[global]
+Instance Proper_fst {U A} : Proper (equiv ==> eq ==> equiv) (@fst (parser2 U A) (printer2 U A)).
+Proof.
+  unfold Proper, respectful; intros * H.
+Admitted.
+
+#[global]
+Instance Proper_may_terminate_with' {A} : Proper (pointwise_relation A iff ==> equiv ==> iff) Delay.may_terminate_with.
+Proof.
+Admitted.
+
+Lemma fst_bind {U A B} (p : biparser U A) (k : A -> biparser U B) s
+  : fst (bind p k) s = bind (fst p s) (fun a => 
+      match a with
+      | None => ret None
+      | Some (x, s) => fst (k x) s
+      end).
+Proof.
+Admitted.
+
+Lemma fst_comap {U V A} (f : U -> option V) (p : biparser V A) s
+  : fst (comap f p) s = fst p s.
+Proof. Admitted.
+
+Lemma weak_forward_many U A (p : biparser (option U) (option A))
+  (WF : weak_forward p) : weak_forward (biparse_many p).
+Proof.
+  unfold weak_forward.
+  intros xs; induction xs; intros.
+  - rewrite unfold_biparse_many.
+    rewrite fst_bind, fst_comap.
+    apply Delay.may_terminate_with_bind.
+    unfold weak_forward in WF.
+    red. intros out1 Hout1.
+    intros out2 Hout2.
+    intros.
+    destruct out1 as [[oa sa] |].
+    + assert (Eoa : oa = None); [ | subst oa ].
+      { admit. }
+      specialize (WF None _ _ Hout1); cbn in WF.
+      assert (Ep2 : snd p (head u) = Some (s0, None)).
+      { admit. }
+      specialize (WF (head u) _ _ eq_refl Ep2).
+      admit.
+    + admit.
+  - rewrite unfold_biparse_many.
+    rewrite fst_bind, fst_comap.
+    apply Delay.may_terminate_with_bind.
+    unfold weak_forward in WF.
+    red. intros out1 Hout1.
+    intros out2 Hout2.
+    intros.
+    destruct out1 as [[oa sa] |].
+    + assert (Eoa : oa = Some a); [| subst oa ].
+      { admit. }
+      specialize (WF (Some a) _ _ Hout1); cbn in WF.
+      assert (Ep2 : snd p (head u) = Some (s0, Some a)).
+      { admit. }
+      specialize (WF _ _ _ eq_refl Ep2).
+Admitted.
 
 Lemma weak_backward_ret U A (a : A) : @weak_backward U A (ret a).
 Proof.
