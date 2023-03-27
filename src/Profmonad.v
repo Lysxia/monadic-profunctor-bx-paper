@@ -806,6 +806,7 @@ Proof.
   apply comap_comp'; auto.
 Qed.
 
+#[global]
 Instance Quasicompositional_Compositional {P} (R : forall A B, P A B -> Prop) `{Compositional P R}
   : Quasicompositional R.
 Proof.
@@ -871,8 +872,8 @@ Qed.
 (**)
 
 (* replicate preserves quasicompositional properties *)
-Lemma replicate_comp P
-      (R : forall U A, P U A -> Prop)
+Lemma replicate_comp {P}
+      {R : forall U A, P U A -> Prop}
       `{Quasicompositional _ R}
       U A (n : nat) (m : P U A)
   : R _ _ m ->

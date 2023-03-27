@@ -57,29 +57,50 @@ Proof.
   apply Nat.mod_upper_bound. discriminate.
 Defined.
 
-(** Get a single [nat] token less than b. *)
-Definition biparse_digit `{Biparser P} (b : nat) : P (digit b) (digit b) :=
-  x <-( fun d => proj1_sig d ) biparse_token ;;
-  match lt_dec x b with
-  | left Hlt => ret (to_digit x Hlt)
-  | right _ => empty
+Definition digit_or_space (n : option nat) : t :=
+  match n with
+  | Some n => n
+  | None => 10
   end.
 
+(** Get a single [nat] token less than b. *)
+Definition biparse_digit `{Biparser P} : P (option nat) (option nat) :=
+  x <-( digit_or_space ) biparse_token  ;;
+  match lt_dec x 10 with
+  | left Hlt => ret (Some x)
+  | right _ =>
+    match Nat.eq_dec x 10 with
+    | left Heq => ret None
+    | right _ => empty
+    end 
+  end.
+
+Definition show_nat (n : nat) : list nat.
+Admitted.
+
+(* You can allow leading zeroes at the cost of breaking forwards roundtripping (read_show_nat) *)
+Definition read_nat (xs : list nat) : option nat.
+Admitted.
+
+Lemma show_read_nat (n : nat)
+  : read_nat (show_nat n) = Some n.
+Admitted.
+
+Lemma read_show_nat (xs : list nat) (n : nat)
+  : read_nat xs = Some n -> show_nat n = xs.
+Admitted.
+
 (** Parse a k-digit number in base b *)
-Fixpoint biparse_nat `{Biparser P} (b : nat) (k : nat)
-  : P nat nat :=
-  match k with
-  | O => ret 0
-  | S k' =>
-    x <-( fun z => Nat.div z b ) biparse_nat b k';;
-    y <-( fun z => Nat.modulo z b ) biparse_token ;;
-    if y <? b then ret (S b * x + y)
-    else empty
+Definition biparse_nat `{Biparser P} : P nat nat :=
+  ds <-( show_nat ) biparse_many biparse_digit ;;
+  match read_nat ds with
+  | None => empty
+  | Some n => ret n
   end.
 
 (** Parse a length n followed by a list of nat-tokens ("string"). *)
 Definition biparse_string `{Biparser P} : P (list nat) (list nat) :=
-  n <-( @length _ ) biparse_nat 9 3;;
+  n <-( @length _ ) biparse_nat;;
   replicate n biparse_token.
 
 (** ** Instances *)
@@ -187,6 +208,12 @@ Qed.
 #[global]
 Instance MonadPartial_parser : MonadPartial parser :=
   { empty := fun _ _ => ret None }.
+
+#[global]
+Instance MonadPartialLaws_parser : MonadPartialLaws parser.
+Proof.
+  constructor; try typeclasses eauto; cbn; auto.
+Admitted.
 
 (** **** Parser promonad *)
 
@@ -703,6 +730,7 @@ Proof.
   - intros; apply Hk.
 Qed.
 
+#[global]
 Instance Quasicompositional_weak_forward :
   Quasicompositional (@weak_forward) := {
   ret_comp' := weak_forward_ret;
@@ -721,33 +749,49 @@ Lemma weak_forward_token :
 Proof.
   intros u b s s' s'' H1 H2.
   destruct s; simpl in *.
-  - discriminate.
-  - inversion H1; inversion H2; subst.
+  - apply Delay.ret_inv in H1. discriminate.
+  - apply Delay.ret_inv in H1. inversion H1; inversion H2; subst.
     reflexivity.
 Qed.
 
 (**)
 
-Lemma weak_forward_digit {b} : weak_forward (biparse_digit b).
+Lemma digit_or_space_digit n : n < 10 -> digit_or_space (Some n) = n.
+Proof. reflexivity. Qed.
+
+Lemma digit_or_space_space : digit_or_space None = 10.
+Proof. reflexivity. Qed.
+
+Lemma weak_forward_digit : weak_forward biparse_digit.
 Proof.
   unfold biparse_digit; intros.
   apply bind_comap_comp'.
-  { intros a; destruct lt_dec; cbn; reflexivity. }
+  { intros a; destruct lt_dec.
+    - rewrite 2 ret_bind. rewrite digit_or_space_digit; [ | auto ]. reflexivity.
+    - destruct Nat.eq_dec.
+      + rewrite 2 ret_bind. unfold t. rewrite digit_or_space_space.
+        subst; reflexivity.
+      + rewrite 2 partial_left_zero; reflexivity.
+  }
   { apply weak_forward_token. }
   { intros a; destruct lt_dec.
     - apply weak_forward_ret.
-    - apply weak_forward_empty. }
+    - destruct Nat.eq_dec.
+      + apply weak_forward_ret.
+      + apply weak_forward_empty. }
 Qed.
 
-Lemma weak_backward_digit {b} : weak_backward (biparse_digit b).
+Lemma weak_backward_digit : weak_backward biparse_digit.
 Proof.
   unfold biparse_digit.
   apply bind_comp.
   - apply comap_comp. apply weak_backward_token.
   - intros a.
-    destruct (lt_dec a b).
+    destruct (lt_dec a _).
     + apply weak_backward_ret.
-    + apply weak_backward_empty.
+    + destruct (Nat.eq_dec a _).
+      * apply weak_backward_ret.
+      * apply weak_backward_empty.
 Qed.
 
 Lemma weak_backward_replicate {A} {n} {p : biparser A A}
@@ -770,67 +814,49 @@ Proof.
   f_equal. apply le_unique.
 Qed.
 
-Lemma weak_forward_nat b k : weak_forward (biparse_nat b k).
+Lemma weak_forward_nat : weak_forward biparse_nat.
 Proof.
-  induction k; cbn [biparse_nat].
-  - apply ret_comp'.
-  - apply bind_comap_comp'.
-    { intros. rewrite 2 bind_bind. f_equal; apply functional_extensionality; intros ?.
-      rewrite 2 ret_bind. f_equal. f_equal.
-      symmetry. apply Nat.div_unique with (r := proj1_sig x); [ apply proj2_sig | reflexivity ]. }
-    { auto. }
-    intros; apply bind_comap_comp'.
-    { intros; rewrite 2 ret_bind.
-      f_equal. f_equal.
-      apply digit_unique. cbn [proj1_sig modulo_d].
-      symmetry; apply Nat.mod_unique with (q := a); [ apply proj2_sig | reflexivity ]. }
-    { apply weak_forward_digit. }
-    intros; apply weak_forward_ret.
+  unfold biparse_nat.
+  apply bind_comap_comp'.
+  { intros. destruct read_nat eqn:Eread.
+    + rewrite 2 ret_bind. rewrite (read_show_nat _ _ Eread). reflexivity.
+    + rewrite 2 partial_left_zero. reflexivity. }
+  { apply weak_forward_many. apply weak_forward_digit. }
+  { intros. destruct read_nat eqn:Eread.
+    + apply weak_forward_ret.
+    + apply weak_forward_empty. }
 Qed.
 
 Lemma fmap_fmap_ {M} `{MonadLaws M} A B C (u : M A) (f : A -> B) (g : B -> C)
-  : (u >>= fun x => ret (g (f x))) = ((u >>= fun x => ret (f x)) >>= fun y => ret (g y)).
+  : (u >>= fun x => ret (g (f x))) == ((u >>= fun x => ret (f x)) >>= fun y => ret (g y)).
 Proof.
   rewrite bind_bind.
-  f_equal. apply functional_extensionality. intros x.
-  rewrite ret_bind.
-  reflexivity.
+  apply Proper_bind; [ reflexivity | intros x ].
+  rewrite ret_bind. reflexivity.
 Qed.
 
-Lemma comap_bind_morph' {U U' A B} (f : U -> option U') (u : Product parser2 printer2 U' A) (k : A -> B)
-  : comap f (bind u (fun x => ret (k x))) = bind (comap f u) (fun x => ret (k x)).
-Proof.
-  cbn. unfold Profunctor_Product; cbn.
-  f_equal.
-  - apply functional_extensionality; intros s.
-    destruct (fst u s) as [ [] | ]; cbn; auto.
-  - apply functional_extensionality; intros s; cbn.
-    destruct (f s) as [ | ]; cbn; auto.
-    destruct (snd u u0) as [ [] | ]; cbn; auto.
-Qed.
-
-Lemma replicate_length {P} `{Biparser P} {PL : ProfmonadLaws P} (n : nat)
-  : replicate (P := P) n biparse_token >>= (fun x : list t => ret (List.length x))
-  = replicate n biparse_token >>= (fun _ : list t => ret n).
+Lemma replicate_length {P} `{Biparser P} `{Eq2 P} `{!forall a, MonadLaws (P a)} `{PL : !ProfmonadLaws P} (n : nat)
+  :  replicate (P := P) n biparse_token >>= (fun x : list t => ret (List.length x))
+  == replicate n biparse_token >>= (fun _ : list t => ret n).
 Proof.
   induction n; cbn.
   - rewrite 2 ret_bind. reflexivity.
-  - rewrite !bind_bind. f_equal. apply functional_extensionality. intros x.
+  - rewrite !bind_bind. apply Proper_bind; [ reflexivity | intros x ].
     rewrite !bind_bind.
     transitivity (comap (P := P) tail (replicate n biparse_token >>= fun x => ret (length x)) >>= fun n => ret (S n)).
-    + rewrite natural_comap. rewrite !bind_bind. f_equal; apply functional_extensionality; intros xs.
+    + rewrite natural_comap. rewrite !bind_bind. apply Proper_bind; [ reflexivity | intros xs ].
       rewrite 2 ret_bind. reflexivity.
-    + rewrite IHn. rewrite natural_comap, !bind_bind. f_equal; apply functional_extensionality; intros xs.
+    + rewrite IHn. rewrite natural_comap, !bind_bind. apply Proper_bind; [ reflexivity | intros xs ].
       rewrite 2 ret_bind. reflexivity.
 Qed.
 
-Lemma replicate_length_ {P} `{Biparser P} {PL : ProfmonadLaws P} (n : nat)
-  : replicate (P := P) n biparse_token >>= (fun x : list t => ret (Some (List.length x)))
-  = replicate n biparse_token >>= (fun _ : list t => ret (Some n)).
+Lemma replicate_length_ {P} `{Biparser P} `{Eq2 P} `{!forall a, MonadLaws (P a)} `{PL : !ProfmonadLaws P} (n : nat)
+  :  replicate (P := P) n biparse_token >>= (fun x : list t => ret (Some (List.length x)))
+  == replicate n biparse_token >>= (fun _ : list t => ret (Some n)).
 Proof.
   rewrite fmap_fmap_.
   rewrite fmap_fmap_ with (f := fun _ => n).
-  f_equal.
+  apply Proper_bind; [ | reflexivity ].
   apply replicate_length.
 Qed.
 
@@ -843,3 +869,10 @@ Proof.
   2:{ intros a; apply weak_forward_replicate. apply weak_forward_token. }
   { apply replicate_length_. }
 Qed.
+
+Theorem weak_backward_string : weak_backward biparse_string.
+Proof.
+  unfold biparse_string.
+  apply bind_comp.
+  - apply comap_comp.
+Admitted.
