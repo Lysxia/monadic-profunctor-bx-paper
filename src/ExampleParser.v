@@ -94,7 +94,7 @@ Admitted.
 Definition biparse_nat `{Biparser P} : P nat nat :=
   ds <-( show_nat ) biparse_many biparse_digit ;;
   match read_nat ds with
-  | None => fail ff
+  | None => fail tt
   | Some n => ret n
   end.
 
