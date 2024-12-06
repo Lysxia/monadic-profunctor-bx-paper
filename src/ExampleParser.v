@@ -697,8 +697,8 @@ Instance Compositional_weak_backward :
   comap_comp := weak_backward_comap;
 }.
 
-Lemma weak_backward_fail U A :
-  weak_backward (@fail (biparser U) _ _ A).
+Lemma weak_backward_fail U A (s : String):
+  weak_backward (@fail (biparser U) _ _ A s).
 Proof.
   discriminate.
 Qed.
@@ -738,8 +738,8 @@ Instance Quasicompositional_weak_forward :
   comap_comp' := weak_forward_comap;
 }.
 
-Lemma weak_forward_fail U A :
-  weak_forward (@fail (biparser U) _ _ A).
+Lemma weak_forward_fail U A (s : String):
+  weak_forward (@fail (biparser U) _ _ A s).
 Proof.
   discriminate.
 Qed.
