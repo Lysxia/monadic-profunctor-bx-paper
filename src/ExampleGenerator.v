@@ -1,4 +1,5 @@
 From Coq Require Import
+  Morphisms
   FunctionalExtensionality
   Arith
   List
@@ -26,6 +27,9 @@ Proof.
   - apply app_nil_r.
   - induction m; cbn; f_equal; auto.
     rewrite flat_map_app; f_equal; auto.
+  - unfold Proper, respectful, pointwise_relation.
+    intros x _ <- f f' Hf.
+    f_equal. apply functional_extensionality; auto.
 Qed.
 
 Definition pred (A : Type) : Type := A -> bool.
@@ -170,7 +174,6 @@ Instance Compositional_weak_complete : Compositional (@weak_complete).
 Proof.
   unfold weak_complete.
   constructor.
-  - typeclasses eauto.
   - intros. cbv in H. injection H. intros []. apply member_ret.
   - cbn; intros.
     destruct (Utils.option_bind_inv_Some _ _ _ H1) as [x' Ex'].
@@ -323,7 +326,7 @@ Proof.
 Qed.
 
 Definition very_sound {A : Type} (g : bigen A A) : Prop :=
-  forall x, member x (run_gen g) -> snd g x = Some x.
+  forall x, member x (run_gen g) -> snd g x == Some x.
 
 Lemma very_sound_sound {A} (g : bigen A A) : very_sound g -> sound g.
 Proof.
@@ -342,8 +345,11 @@ Proof.
     apply Hm in Ha2. apply Hk in Hb.
     rewrite option_map_id.
     assert (Hf' : f b = Some a).
-    { specialize (Hf a). injection Hf; intros H5 _. apply (f_equal (fun f => f b)) in H5.
-      rewrite Hb in H5; cbn in H5. injection H5; auto. }
+    { specialize (Hf a).
+      destruct Hf as [Hf1 Hf2].
+      cbn in Hf1. cbn in Hf2. unfold pointwise_relation in Hf2.
+      specialize (Hf2 b).
+      rewrite Hb in Hf2. injection Hf2. auto. }
     rewrite Hf'; cbn. rewrite Ha2; cbn. auto.
 Qed.
 
@@ -375,12 +381,29 @@ Proof.
     + apply bind_idiomcomp.
       { intros [].
         - reflexivity.
-        - repeat (setoid_rewrite bind_bind; f_equal; apply functional_extensionality; intros). }
+        - rewrite 2 bind_bind.
+          apply Proper_bind; [ reflexivity | intros ? ].
+          rewrite 2 bind_bind.
+          apply Proper_bind; [ reflexivity | intros ? ].
+          rewrite 2 bind_bind.
+          apply Proper_bind; [ reflexivity | intros ? ].
+          rewrite 2 ret_bind.
+          reflexivity. }
       { apply @very_sound_bool. }
       { intros [].
         { apply ret_idiomcomp. }
         { repeat (apply bind_idiomcomp; [ | auto using very_sound_range | intros ]); [ .. | apply ret_idiomcomp ].
-          all: intros; repeat (setoid_rewrite bind_bind; f_equal; apply functional_extensionality; intros); rewrite !ret_bind; reflexivity.
+          - intros ?.
+            rewrite 2 bind_bind.
+            apply Proper_bind; [ reflexivity | intros ? ].
+            rewrite 2 bind_bind.
+            apply Proper_bind; [ reflexivity | intros ? ].
+            rewrite 2 ret_bind; reflexivity.
+          - intros ?.
+            rewrite 2 bind_bind.
+            apply Proper_bind; [ reflexivity | intros ? ].
+            rewrite 2 ret_bind; reflexivity.
+          - intros ?. rewrite 2 ret_bind; reflexivity.
         }
       }
 Qed.

@@ -7,6 +7,7 @@
  *)
 
 From Coq Require Import
+  Morphisms
   FunctionalExtensionality
   PeanoNat
   List.
@@ -228,22 +229,44 @@ Proof.
       destruct (put (k a) x s) as [ [[] ?] | ]; cbn; [ | reflexivity ].
       destruct (put (h b0) x s0) as [ [[] ?] | ]; cbn; f_equal. f_equal.
       apply functional_extensionality; intros; rewrite Bool.andb_assoc. reflexivity.
-  -
+  - unfold Proper, respectful, pointwise_relation.
+    intros A B x _ <- f f' Hf.
+    unfold bind_Lens.
+    f_equal.
+    + apply functional_extensionality; intros.
+      f_equal. apply functional_extensionality; intros.
+      rewrite Hf. reflexivity.
+    + apply functional_extensionality; intros.
+      apply functional_extensionality; intros.
+      f_equal.
+      apply functional_extensionality; intros [[? ?] ?].
+      rewrite Hf. reflexivity.
 Qed.
 
 Instance ProfunctorLaws_Lens {S} : ProfunctorLaws (Lens S).
 Proof.
   constructor; cbn.
-  - intros; apply functional_extensionality; intros []; unfold dimap, Profunctor_Lens, id; cbn.
+  - unfold pointwise_relation, Profunctor_Lens.
+    intros U A []; cbn.
     f_equal.
-    + apply functional_extensionality. intros; destruct (get0 _); reflexivity.
-    + do 2 (apply functional_extensionality; intros).
-      destruct (put0 _ _) as [ [[] ? ] | ]; reflexivity.
-  - intros; apply functional_extensionality; intros []; unfold dimap, Profunctor_Lens, compose; cbn.
-    f_equal.
-    + apply functional_extensionality. intros; destruct (get0 _); reflexivity.
-    + do 2 (apply functional_extensionality; intros).
-      destruct (put0 _ _) as [ [[] ? ] | ]; reflexivity.
+    + apply functional_extensionality; intros.
+      destruct get0; reflexivity.
+    + apply functional_extensionality; intros.
+      apply functional_extensionality; intros.
+      destruct put0 as [[[] ] | ]; reflexivity.
+  - unfold pointwise_relation, Profunctor_Lens.
+    intros U V W A B C f1 f2 g1 g2 a.
+    cbn. f_equal.
+    + apply functional_extensionality; intros.
+      destruct get; reflexivity.
+    + apply functional_extensionality; intros.
+      apply functional_extensionality; intros.
+      destruct put as [[[] ] | ]; reflexivity.
+  - unfold Proper, respectful, pointwise_relation.
+    intros U V A B f f' Hf g g' Hg x _ <-.
+    replace f' with f; [ | apply functional_extensionality; intros; auto ].
+    replace g' with g; [ | apply functional_extensionality; intros; auto ].
+    reflexivity.
 Qed.
 
 Instance PartialProfunctorLaws_Lens {S} : PartialProfunctorLaws (Lens S).
@@ -253,6 +276,8 @@ Proof.
   - intros; unfold Profunctor_Lens; cbn.
     f_equal. do 2 (apply functional_extensionality; intros).
     destruct x; cbn; reflexivity.
+  - unfold Proper, respectful.
+    intros A B x _ <-; reflexivity.
 Qed.
 
 Instance comap_morphism_Lens {S U V : Type} (f : U -> V)
@@ -267,6 +292,8 @@ Proof.
     + do 2 (apply functional_extensionality; intros).
       destruct put as [ [[] ? ] | ]; cbn; [ | reflexivity ].
       destruct put as [ [[] ? ] | ]; cbn; reflexivity.
+  - unfold Proper, respectful.
+    intros A x _ <-; reflexivity.
 Qed.
 
 Lemma map_dimap_Lens {S U A B} (f : A -> B) (u : Lens S U A)
@@ -324,7 +351,6 @@ Qed.
 Instance Compositional_weak_backward {S} : Compositional (@weak_backward S).
 Proof.
   constructor; cbn.
-  - typeclasses eauto.
   - red; cbn; intros. inversion H; auto.
   - apply @weak_backward_bind.
   - unfold weak_backward, Profunctor_Lens; cbn; intros.
@@ -675,8 +701,10 @@ Proof.
   - red; cbn. congruence.
   - apply bind_comap_comp'.
     { intros []; cbn delta.
-      rewrite 2 bind_bind.
-      f_equal.
+      { rewrite 2 bind_bind.
+        apply Proper_bind.
+        { reflexivity. }
+        { intros x; rewrite 2 ret_bind; reflexivity. } }
       rewrite 2 ret_bind; reflexivity. }
     { apply weak_forward_rootL. }
     { intros [].

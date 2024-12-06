@@ -988,7 +988,7 @@ Class Idiomcompositional
       forall A a, R A (ret a);
     bind_idiomcomp :
       forall A B (m : P A A) (k : A -> P B B) (f : B -> option A),
-        (forall a, (x <- k a;; ret (f x)) = (x <- k a;; ret (Some a))) ->
+        (forall a, (x <- k a;; ret (f x)) == (x <- k a;; ret (Some a))) ->
         R A m ->
         (forall a, R B (k a)) ->
         R B (bind (Profmonad.comap f m) k);
