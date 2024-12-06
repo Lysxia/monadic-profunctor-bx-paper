@@ -171,6 +171,7 @@ Definition bnil {n : nat} {A : Type} : blist n A :=
 Definition bcons {n : nat} {A : Type} (x : A) (xs : blist n A) : blist (S n) A :=
   Some (x, xs).
 
+Declare Scope blist_scope.
 Delimit Scope blist_scope with blist.
 Notation "[ x ; .. ; y ]" := (bcons x .. (bcons y bnil) ..) : blist_scope.
 
@@ -227,6 +228,7 @@ Proof.
       destruct (put (k a) x s) as [ [[] ?] | ]; cbn; [ | reflexivity ].
       destruct (put (h b0) x s0) as [ [[] ?] | ]; cbn; f_equal. f_equal.
       apply functional_extensionality; intros; rewrite Bool.andb_assoc. reflexivity.
+  -
 Qed.
 
 Instance ProfunctorLaws_Lens {S} : ProfunctorLaws (Lens S).

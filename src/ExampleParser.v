@@ -36,8 +36,8 @@ Definition t : Type := nat.
 (** Parse a token using [biparse_token].
   More complex biparsers are defined using promonadic operations. *)
 Class Biparser (P : Type -> Type -> Type) :=
-  { Biparser_Profmonad :> Profmonad P;
-    Biparser_Partial :> forall U, MonadPartial (P U);
+  { Biparser_Profmonad :: Profmonad P;
+    Biparser_Partial :: forall U, MonadPartial (P U);
     biparse_token : P t t;
     biparse_many : forall U A, P (option U) (option A) -> P (list U) (list A)
   }.

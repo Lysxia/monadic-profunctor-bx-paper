@@ -35,7 +35,7 @@ Class Monad (M : Type -> Type) :=
     bind : forall A B, M A -> (A -> M B) -> M B;
   }.
 
-#[global] Hint Mode Monad ! .
+#[global] Hint Mode Monad ! : typeclass_instances.
 
 Arguments ret {M _ A}.
 Arguments bind {M _ A B}.
@@ -46,7 +46,7 @@ Infix ">>=" := bind (at level 61, left associativity).
 
 Class Setoid (A : Type) : Type :=
   { equiv : A -> A -> Prop
-  ; equivalence_equiv :> Equivalence equiv
+  ; equivalence_equiv :: Equivalence equiv
   }.
 
 Notation Eq1 M := (forall A, Setoid (M A)).
@@ -71,7 +71,7 @@ Class MonadLaws (M : Type -> Type) {Monad_M : Monad M} {Eq_M : Eq1 M} : Prop :=
     ret_bind : forall A B (a : A) (k : A -> M B), bind (ret a) k == k a;
     bind_bind : forall A B C (m : M A) (k : A -> M B) (h : B -> M C),
       bind (bind m k) h == bind m (fun a => bind (k a) h);
-    Proper_bind :> forall A B,
+    Proper_bind :: forall A B,
       Proper (equiv ==> pointwise_relation A equiv ==> equiv) (bind (A := A) (B := B))
   }.
 
@@ -87,9 +87,9 @@ Proof.
   intros A x. apply bind_ret.
 Qed.
 
-Lemma map_map `{MonadLaws M} :
+Lemma map_map `{Monad M} `{MonadLaws M} :
   forall A B C (f : A -> B) (g : B -> C),
-    map g ∘ map f == map (g ∘ f).
+    map (M := M) g ∘ map f == map (g ∘ f).
 Proof.
   intros A B C f g u.
   unfold map, compose. rewrite bind_bind.
@@ -99,7 +99,7 @@ Qed.
 
 Lemma map_ret `{MonadLaws M} :
   forall A B (f : A -> B) (x : A),
-    map f (ret x) == ret (f x).
+    map (M := M) f (ret x) == ret (f x).
 Proof.
   intros *; unfold map. rewrite ret_bind. reflexivity.
 Qed.
@@ -114,7 +114,7 @@ Arguments empty {M _ _ A}.
 Class MonadPartialLaws (M : Type -> Type)
       `{MonadPartial_M : MonadPartial M}
       `{Eq1_M : Eq1 M} : Prop :=
-  { partial_MonadLaws :> MonadLaws _;
+  { partial_MonadLaws :: MonadLaws _;
     partial_left_zero : forall A B (k : A -> M B),
       bind empty k == empty;
   }.
@@ -224,7 +224,7 @@ Class ProfunctorLaws (P : Type -> Type -> Type) {Profunctor_P : Profunctor P} {E
         (f1 : W -> V) (f2 : V -> U)
         (g1 : B -> C) (g2 : A -> B),
         (dimap f1 g1 ∘ dimap f2 g2) == dimap (f2 ∘ f1) (g1 ∘ g2)
-  ; Proper_dimap :> forall U V A B,
+  ; Proper_dimap :: forall U V A B,
       Proper (pointwise_relation U eq ==> pointwise_relation A eq ==> equiv ==> equiv)
              (dimap (U := U) (V := V) (A := A) (B := B))
   }.
@@ -234,19 +234,21 @@ Class ProfunctorLaws (P : Type -> Type -> Type) {Profunctor_P : Profunctor P} {E
 (** *** Operations *)
 
 Class PartialProfunctor (P : Type -> Type -> Type) : Type :=
-  { asProfunctor :> Profunctor P
+  { asProfunctor :: Profunctor P
   ; toFailureP :
       forall {A B : Type}, P A B -> P (option A) B
   }.
 
+Arguments Build_PartialProfunctor {P} &.
+
 (** *** Laws *)
 
 Class PartialProfunctorLaws (P : Type -> Type -> Type) {PartialProfunctor_P : PartialProfunctor P} {Eq2_P : Eq2 P} : Prop :=
-  { asProfunctorLaws :> ProfunctorLaws P
+  { asProfunctorLaws :: ProfunctorLaws P
   ; toFailureP_dimap :
        forall U V A B (f : U -> V) (g : A -> B) (u : P V A),
          toFailureP (dimap f g u) == dimap (option_map f) g (toFailureP u)
-  ; Proper_toFailureP :> forall A B, Proper (equiv ==> equiv) (toFailureP (A := A) (B := B))
+  ; Proper_toFailureP :: forall A B, Proper (equiv ==> equiv) (toFailureP (A := A) (B := B))
   }.
 
 
@@ -258,8 +260,8 @@ Class PartialProfunctorLaws (P : Type -> Type -> Type) {PartialProfunctor_P : Pa
 (** A promonad is a partial profunctor that's also a monad in its second
   argument. *)
 Class Profmonad (P : Type -> Type -> Type) :=
-  { asMonad :> forall U, Monad (P U)
-  ; asPartialProfunctor :> PartialProfunctor P
+  { asMonad :: forall U, Monad (P U)
+  ; asPartialProfunctor :: PartialProfunctor P
   }.
 
 Definition comap {P} `{PartialProfunctor P} {U V A : Type}
@@ -348,7 +350,7 @@ Qed.
 Class ProfmonadMorphism {P Q : TyCon2}
       `{Profmonad P} `{Profmonad Q} `{Eq2 P} `{Eq2 Q}
       (phi : forall U V, P U V -> Q U V) : Prop := {
-    asMonadMorphism :> forall U, MonadMorphism (phi U);
+    asMonadMorphism :: forall U, MonadMorphism (phi U);
     morph_comap : forall U U' V (f : U -> option U') (m : P U' V),
         phi _ _ (comap f m) == comap f (phi _ _ m);
   }.
@@ -897,8 +899,8 @@ Proof.
         rewrite 2 ret_bind.
         reflexivity.
       }
-      { auto using comap_comp'. }
-      { auto using ret_comp'. }
+      { apply comap_comp'. auto. }
+      { intros a'. apply ret_comp'. }
     }
 Qed.
 
