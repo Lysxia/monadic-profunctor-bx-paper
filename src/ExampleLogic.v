@@ -145,7 +145,7 @@ Class RProfunctor (p : Type -> Type -> Type) : Type :=
 
 Class RPartialProfunctor (p : Type -> Type -> Type) : Type :=
   { asRProfunctor : RProfunctor p
-  ; rtoFailureP : forall {a b} {Cb : K b}, p a b -> p (option a) b
+  ; rinternaliseMaybe : forall {a b} {Cb : K b}, p a b -> p (option a) b
   }.
 #[global] Existing Instance asRProfunctor.
 
@@ -158,7 +158,7 @@ Class RProfmonad (p : Type -> Type -> Type) : Type :=
 
 Definition comap {P} `{!RPartialProfunctor P} {U V A : Type} {Ca : C A}
   (f : U -> option V) (u : P V A) : P U A :=
-  rdimap (Cb := Ca) (Cb' := Ca) f (fun x => x) (rtoFailureP (Cb := Ca) u).
+  rdimap (Cb := Ca) (Cb' := Ca) f (fun x => x) (rinternaliseMaybe (Cb := Ca) u).
 
 Class RMonadPlus (m : Type -> Type) : Type :=
   { RMonadPlusAsRMonad : RMonad m
@@ -403,13 +403,13 @@ Definition GGR m := Product (Fwd m) (Bwd (OptionT (State bool))).
 
 #[global] Instance RPartialProfunctor_Product {C} {p q}
   {RPartialProfunctor1 : RPartialProfunctor C p} {RPartialProfunctor2 : RPartialProfunctor C q} : RPartialProfunctor C (Product p q) :=
-  { rtoFailureP := fun _ _ _ x => (rtoFailureP (fst x), rtoFailureP (snd x)) }.
+  { rinternaliseMaybe := fun _ _ _ x => (rinternaliseMaybe (fst x), rinternaliseMaybe (snd x)) }.
 
 #[global] Instance RProfunctor_Fwd {C} {m} `{RMonad C m} : RProfunctor C (Fwd m) :=
   { rdimap := fun _ _ _ _ _ _ f g x => rbind x (fun x => rret (g x)) }.
 
 #[global] Instance RPartialProfunctor_Fwd {C} {m} `{RMonadPlus C m} : RPartialProfunctor C (Fwd m) :=
-  { rtoFailureP := fun _ _ _ x => x }.
+  { rinternaliseMaybe := fun _ _ _ x => x }.
 
 #[global] Instance RProfmonad_Fwd {C} {m} `{RMonadPlus C m} : RProfmonad C (Fwd m) := {}.
 
@@ -417,7 +417,7 @@ Definition GGR m := Product (Fwd m) (Bwd (OptionT (State bool))).
   { rdimap := fun _ _ _ _ _ _ f g x y => rbind (x (f y)) (fun x => rret (g x)) }.
 
 #[global] Instance RPartialProfunctor_Bwd {C} {m} `{RMonadPlus C m} : RPartialProfunctor C (Bwd m) :=
-  { rtoFailureP := fun _ _ _ m x => match x with None => rmzero | Some x => m x end }.
+  { rinternaliseMaybe := fun _ _ _ m x => match x with None => rmzero | Some x => m x end }.
 
 #[global] Instance RProfmonad_Bwd {C} {m} `{RMonadPlus C m} : RProfmonad C (Bwd m) := {}.
 
@@ -867,7 +867,7 @@ Proof.
     + apply @complete_reject.
     + apply bind_comp.
       { apply comap_comp, IH. }
-      intros. apply bind_comp. 
+      intros. apply bind_comp.
       { apply comap_comp, complete_safePlacing. }
       intros; apply ret_comp.
 Qed.

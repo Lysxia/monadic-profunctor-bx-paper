@@ -56,7 +56,7 @@ Definition Profunctor_Lens S : Profunctor (Lens S) :=
 
 Definition PartialProfunctor_Lens S : PartialProfunctor (Lens S) := {|
   asProfunctor := Profunctor_Lens S
-; toFailureP A B (l : Lens S A B) :=
+; internaliseMaybe A B (l : Lens S A B) :=
     {| get s := get l s
     ;  put ox s := bind_option ox (fun x => put l x s)
     |}
