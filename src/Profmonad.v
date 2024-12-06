@@ -106,36 +106,38 @@ Qed.
 
 (** ** Monads with failure *)
 
-Class MonadPartial M `{Monad M} :=
-  { empty : forall A, M A }.
+Definition String := unit.
 
-Arguments empty {M _ _ A}.
+Class MonadFail M `{Monad M} :=
+  { fail : forall A, String -> M A }.
 
-Class MonadPartialLaws (M : Type -> Type)
-      `{MonadPartial_M : MonadPartial M}
+Arguments fail {M _ _ A}.
+
+Class MonadFailLaws (M : Type -> Type)
+      `{MonadFail_M : MonadFail M}
       `{Eq1_M : Eq1 M} : Prop :=
   { partial_MonadLaws :: MonadLaws _;
-    partial_left_zero : forall A B (k : A -> M B),
-      bind empty k == empty;
+    partial_left_zero : forall A B (k : A -> M B) (s : String),
+      bind (fail s) k == fail s;
   }.
 
 Definition ret_opt {M : Type -> Type}
-           `{Monad_M : Monad M} `{MonadPartial_M : MonadPartial M}
+           `{Monad_M : Monad M} `{MonadFail_M : MonadFail M}
            {A : Type}
            (oa : option A) : M A :=
   match oa with
-  | None => empty
+  | None => fail tt
   | Some a => ret a
   end.
 
 Definition map_opt {M : Type -> Type}
-           `{Monad_M : Monad M} `{MonadPartial_M : MonadPartial M}
+           `{Monad_M : Monad M} `{MonadFail_M : MonadFail M}
            {A B : Type}
            (f : A -> option B) (m : M A) :=
   x <- m;; ret_opt (f x).
 
-Lemma map_empty {M} `{MonadPartialLaws M} {A B} (f : A -> B)
-  : map f empty == empty.
+Lemma map_fail {M} `{MonadFailLaws M} {A B} (f : A -> B) (s : String)
+  : map f (fail s) == (fail s).
 Proof.
   unfold map.
   apply partial_left_zero.
@@ -167,10 +169,10 @@ Proof.
 Qed.
 
 #[global]
-Instance MonadPartial_option : MonadPartial option :=
-  { empty _ := None }.
+Instance MonadFail_option : MonadFail option :=
+  { fail _ s := None }.
 
-Instance MonadPartialLaws_option : MonadPartialLaws option.
+Instance MonadFailLaws_option : MonadFailLaws option.
 Proof.
   constructor.
   - typeclasses eauto.
@@ -235,7 +237,7 @@ Class ProfunctorLaws (P : Type -> Type -> Type) {Profunctor_P : Profunctor P} {E
 
 Class PartialProfunctor (P : Type -> Type -> Type) : Type :=
   { asProfunctor :: Profunctor P
-  ; toFailureP :
+  ; internaliseMaybe :
       forall {A B : Type}, P A B -> P (option A) B
   }.
 
@@ -245,10 +247,10 @@ Arguments Build_PartialProfunctor {P} &.
 
 Class PartialProfunctorLaws (P : Type -> Type -> Type) {PartialProfunctor_P : PartialProfunctor P} {Eq2_P : Eq2 P} : Prop :=
   { asProfunctorLaws :: ProfunctorLaws P
-  ; toFailureP_dimap :
+  ; internaliseMaybe_dimap :
        forall U V A B (f : U -> V) (g : A -> B) (u : P V A),
-         toFailureP (dimap f g u) == dimap (option_map f) g (toFailureP u)
-  ; Proper_toFailureP :: forall A B, Proper (equiv ==> equiv) (toFailureP (A := A) (B := B))
+         internaliseMaybe (dimap f g u) == dimap (option_map f) g (internaliseMaybe u)
+  ; Proper_internaliseMaybe :: forall A B, Proper (equiv ==> equiv) (internaliseMaybe (A := A) (B := B))
   }.
 
 
@@ -266,7 +268,7 @@ Class Profmonad (P : Type -> Type -> Type) :=
 
 Definition comap {P} `{PartialProfunctor P} {U V A : Type}
   (f : U -> option V) (u : P V A) : P U A :=
-  dimap f (fun x => x) (toFailureP u).
+  dimap f (fun x => x) (internaliseMaybe u).
 
 Notation "x <-( f ?) m ;; m2" := (x <- comap f m ;; m2)
 (at level 90, right associativity).
@@ -303,7 +305,7 @@ Instance Proper_comap {P} `{PartialProfunctorLaws P} {U V A} : Proper (pointwise
 Proof.
   unfold Proper, respectful.
   intros * Hf * Hp. unfold comap. apply Proper_dimap; reflexivity + auto.
-  apply Proper_toFailureP; assumption.
+  apply Proper_internaliseMaybe; assumption.
 Qed.
 
 Lemma comap_morph_ret {P} `{ProfmonadLaws P} U V A
@@ -323,7 +325,7 @@ Proof.
 Qed.
 
 Lemma equiv_apply {A B} `{Setoid B} (f g : A -> B) (x : A)
-  : f == g -> f x == g x. 
+  : f == g -> f x == g x.
 Proof.
   intros Hf; apply Hf.
 Qed.
@@ -334,7 +336,7 @@ Lemma natural_comap {P} `{ProfmonadLaws P} U U' A B
 Proof.
   do 2 change (bind ?u _) with (map k u).
   rewrite 2 map_dimap.
-  unfold comap. rewrite toFailureP_dimap.
+  unfold comap. rewrite internaliseMaybe_dimap.
   do 2 change (dimap ?f ?f' (?g ?x)) with (compose (dimap f f') g x).
   apply equiv_apply.
   rewrite 2 dimap_compose.
@@ -377,14 +379,14 @@ Proof.
 Defined.
 
 #[global]
-Instance MonadPartial_Fwd (M : Type -> Type) `{MonadPartial M} :
-  forall U, MonadPartial (Fwd M U) :=
-  { empty _ := empty }.
+Instance MonadFail_Fwd (M : Type -> Type) `{MonadFail M} :
+  forall U, MonadFail (Fwd M U) :=
+  { fail _ := fail }.
 
 #[global]
-Instance MonadPartialLaws_Fwd (M : Type -> Type)
-         `{MonadPartialLaws M} :
-  forall U, MonadPartialLaws (Fwd M U).
+Instance MonadFailLaws_Fwd (M : Type -> Type)
+         `{MonadFailLaws M} :
+  forall U, MonadFailLaws (Fwd M U).
 Proof.
   constructor.
   - typeclasses eauto.
@@ -399,7 +401,7 @@ Instance Profunctor_Fwd (M : Type -> Type) `{Monad M} :
 #[global]
 Instance PartialProfunctor_Fwd (M : Type -> Type) `{Monad M} :
   PartialProfunctor (Fwd M) :=
-  {| toFailureP := fun _ _ m => m |}.
+  {| internaliseMaybe := fun _ _ m => m |}.
 
 #[global]
 Instance Profmonad_Fwd (M : Type -> Type) `{Monad M} :
@@ -444,11 +446,11 @@ Proof.
   - reflexivity.
   - constructor.
     + intros A a.
-      cbv [comap dimap asProfunctor asPartialProfunctor Profmonad_Fwd PartialProfunctor_Fwd Profunctor_Fwd toFailureP map].
+      cbv [comap dimap asProfunctor asPartialProfunctor Profmonad_Fwd PartialProfunctor_Fwd Profunctor_Fwd internaliseMaybe map].
       rewrite ret_bind.
       reflexivity.
     + intros.
-      cbv [comap dimap asProfunctor asPartialProfunctor Profmonad_Fwd PartialProfunctor_Fwd Profunctor_Fwd toFailureP map].
+      cbv [comap dimap asProfunctor asPartialProfunctor Profmonad_Fwd PartialProfunctor_Fwd Profunctor_Fwd internaliseMaybe map].
       rewrite bind_bind.
       f_equal.
       rewrite bind_ret.
@@ -473,7 +475,7 @@ Instance Monad_Bwd (M : Type -> Type) `{Monad M} :
   }.
 
 #[global]
-Instance Setoid_Bwd {M} `{Eq1 M} : Eq2 (Bwd M) := 
+Instance Setoid_Bwd {M} `{Eq1 M} : Eq2 (Bwd M) :=
   fun _ _ => _.
 
 #[global]
@@ -489,36 +491,36 @@ Proof.
     intros a. apply H1.
 Defined.
 
-Instance MonadPartial_Bwd (M : Type -> Type) `{MonadPartial M} :
-  forall U, MonadPartial (Bwd M U) :=
-  { empty _ := fun _ => empty }.
+Instance MonadFail_Bwd (M : Type -> Type) `{MonadFail M} :
+  forall U, MonadFail (Bwd M U) :=
+  { fail _ s := fun _ => fail s }.
 
-Instance MonadPartialLaws_Bwd (M : Type -> Type)
-         `{MonadPartialLaws M} :
-  forall U, MonadPartialLaws (Bwd M U).
+Instance MonadFailLaws_Bwd (M : Type -> Type)
+         `{MonadFailLaws M} :
+  forall U, MonadFailLaws (Bwd M U).
 Proof.
   constructor; try typeclasses eauto.
   intros. intros u; cbn. apply partial_left_zero.
 Defined.
 
-Instance Profunctor_Bwd (M : Type -> Type) `{MonadPartial M} :
+Instance Profunctor_Bwd (M : Type -> Type) `{MonadFail M} :
   Profunctor (Bwd M) :=
   fun U V A B f g m => fun v => map g (m (f v)).
 
-Instance PartialProfunctor_Bwd M `{MonadPartial M} :
+Instance PartialProfunctor_Bwd M `{MonadFail M} :
   PartialProfunctor (Bwd M) :=
-  {| toFailureP := fun U A (u : Bwd M U A) ox =>
+  {| internaliseMaybe := fun U A (u : Bwd M U A) ox =>
        match ox with
-       | None => empty
+       | None => fail tt
        | Some x => u x
        end
   |}.
 
-Instance Profmonad_Bwd (M : Type -> Type) `{MonadPartial M} :
+Instance Profmonad_Bwd (M : Type -> Type) `{MonadFail M} :
   Profmonad (Bwd M) :=
   Build_Profmonad _ _ _.
 
-Instance PartialProfunctorLaws_Bwd M `{MonadPartialLaws M} :
+Instance PartialProfunctorLaws_Bwd M `{MonadFailLaws M} :
   PartialProfunctorLaws (Bwd M).
 Proof.
   constructor.
@@ -535,7 +537,7 @@ Proof.
   - intros; cbn; unfold Profunctor_Bwd.
     intros [ x | ]; cbn.
     + reflexivity.
-    + rewrite map_empty; reflexivity.
+    + rewrite map_fail; reflexivity.
   - unfold Proper, respectful; cbn. intros. intros []; cbn; auto. reflexivity.
 Qed.
 
@@ -545,7 +547,7 @@ Proof.
 Qed.
 
 #[global]
-Instance ProfmonadLaws_Bwd (M : Type -> Type) `{MonadPartialLaws M} :
+Instance ProfmonadLaws_Bwd (M : Type -> Type) `{MonadFailLaws M} :
   ProfmonadLaws (Bwd M).
 Proof.
   constructor.
@@ -619,18 +621,18 @@ Proof.
     + intros ?; apply H2.
 Qed.
 
-Instance MonadPartial_Product P1 P2 U
-         `{MonadPartial (P1 U),
-           MonadPartial (P2 U)} :
-  MonadPartial (Product P1 P2 U) :=
-  { empty _ := (empty, empty) }.
+Instance MonadFail_Product P1 P2 U
+         `{MonadFail (P1 U),
+           MonadFail (P2 U)} :
+  MonadFail (Product P1 P2 U) :=
+  { fail _ := (fail, fail) }.
 
-Instance MonadPartialLaws_Product P1 P2 U
+Instance MonadFailLaws_Product P1 P2 U
          `{Eq2 P1, Eq2 P2}
-         `{MonadPartial (P1 U), MonadPartial (P2 U)}
-         `{!MonadPartialLaws (P1 U),
-           !MonadPartialLaws (P2 U)} :
-  MonadPartialLaws (Product P1 P2 U).
+         `{MonadFail (P1 U), MonadFail (P2 U)}
+         `{!MonadFailLaws (P1 U),
+           !MonadFailLaws (P2 U)} :
+  MonadFailLaws (Product P1 P2 U).
 Proof.
   constructor; try typeclasses eauto.
   intros. simpl. constructor; apply partial_left_zero.
@@ -641,7 +643,7 @@ Instance Profunctor_Product P1 P2 `{Profunctor P1} `{Profunctor P2} : Profunctor
 
 Instance PartialProfunctor_Product P1 P2 `{PartialProfunctor P1} `{PartialProfunctor P2} : PartialProfunctor (Product P1 P2) :=
   {| asProfunctor := Profunctor_Product P1 P2
-   ; toFailureP := fun A B u => (toFailureP (fst u), toFailureP (snd u)) |}.
+   ; internaliseMaybe := fun A B u => (internaliseMaybe (fst u), internaliseMaybe (snd u)) |}.
 
 Instance Profmonad_Product P1 P2
          `{Profmonad P1, Profmonad P2} :
@@ -666,8 +668,8 @@ Proof.
       * apply Proper_dimap; auto. apply H3.
       * apply Proper_dimap; auto. apply H3.
   - intros; cbn; unfold Profunctor_Product.
-    f_equal; rewrite 2 toFailureP_dimap; reflexivity.
-  - constructor; cbn; apply Proper_toFailureP; apply H1.
+    f_equal; rewrite 2 internaliseMaybe_dimap; reflexivity.
+  - constructor; cbn; apply Proper_internaliseMaybe; apply H1.
 Qed.
 
 Instance LawfulProfmonad_Product P1 P2
@@ -722,7 +724,7 @@ Definition pfunction (A B : Type) : Type := A -> option B.
     option_map g (u (f x)).
 
 #[global] Instance PartialProfunctor_pfunction : PartialProfunctor pfunction :=
-  {| toFailureP := fun U A (u : pfunction U A) (x : option U) => bind_option x u |}.
+  {| internaliseMaybe := fun U A (u : pfunction U A) (x : option U) => bind_option x u |}.
 
 #[global] Instance Profmonad_pfunction : Profmonad pfunction :=
   Build_Profmonad _ _ _.
@@ -815,21 +817,21 @@ Proof.
   destruct H0; constructor; auto.
 Qed.
 
-Definition mrange {M} `{MonadPartial M} {A} (p : A -> bool) (u : M A) : Prop
-  := u = (u >>= fun x => if p x then ret x else empty).
+Definition mrange {M} `{MonadFail M} {A} (p : A -> bool) (u : M A) : Prop
+  := u = (u >>= fun x => if p x then ret x else fail).
 
 (*
 Class Compositional' (P : Type -> Type -> Type) (R : forall A B, P A B -> Prop)
     `{forall U, Monad (P U)}
-    `{forall U, @MonadPartial (P U) _}
-    `{forall U, @MonadPartialLaws (P U) _ _} : Prop :=
-  { empty_comp : forall U A, R U A empty
+    `{forall U, @MonadFail (P U) _}
+    `{forall U, @MonadFailLaws (P U) _ _} : Prop :=
+  { fail_comp : forall U A, R U A fail
   }.
 
 Lemma bind_comp_range {P} {R : forall A B, P A B -> Prop}
     `{Compositional P R}
-    `{!forall U, @MonadPartial (P U) _}
-    `{!forall U, @MonadPartialLaws (P U) _ _}
+    `{!forall U, @MonadFail (P U) _}
+    `{!forall U, @MonadFailLaws (P U) _ _}
     `{!Compositional' P R}
   : forall U A B (p : A -> bool) (m : P U A) (k : A -> P U B) ,
       mrange p m ->
@@ -843,13 +845,13 @@ Proof.
   intros; destruct (p a) eqn:Hpa.
   - rewrite ret_bind; auto.
   - rewrite partial_left_zero.
-    apply empty_comp.
+    apply fail_comp.
 Qed.
 
 Lemma bind_comp_range' {P} {R : forall A B, P A B -> Prop}
     `{Quasicompositional P R}
-    `{!forall U, @MonadPartial (P U) _}
-    `{!forall U, @MonadPartialLaws (P U) _ _}
+    `{!forall U, @MonadFail (P U) _}
+    `{!forall U, @MonadFailLaws (P U) _ _}
     `{!Compositional' P R}
   : forall U A B (p : A -> bool) (m : P U A) (k : A -> P U B) (f : B -> option A),
       mrange p m ->
@@ -867,7 +869,7 @@ Proof.
   intros; destruct (p a) eqn:Hpa.
   - rewrite ret_bind; auto.
   - rewrite partial_left_zero.
-    apply empty_comp.
+    apply fail_comp.
 Qed.
 *)
 
@@ -944,7 +946,7 @@ Lemma purify_replicate P
 Proof.
   intros Hn; subst; induction xs.
   - cbn [replicate length].
-     
+
   - cbn [length replicate traverse_option].
     rewrite morph_bind, morph_comap.
     cbn [ bind asMonad Profmonad_pfunction Monad_pfunction ].
