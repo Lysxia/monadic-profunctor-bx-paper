@@ -89,7 +89,7 @@ Qed.
 
 Lemma map_map `{Monad M} `{MonadLaws M} :
   forall A B C (f : A -> B) (g : B -> C),
-    map (M := M) g ∘ map f == map (g ∘ f).
+    map (M := M) g \u2218 map f == map (g \u2218 f).
 Proof.
   intros A B C f g u.
   unfold map, compose. rewrite bind_bind.
@@ -225,7 +225,7 @@ Class ProfunctorLaws (P : Type -> Type -> Type) {Profunctor_P : Profunctor P} {E
       forall U V W A B C
         (f1 : W -> V) (f2 : V -> U)
         (g1 : B -> C) (g2 : A -> B),
-        (dimap f1 g1 ∘ dimap f2 g2) == dimap (f2 ∘ f1) (g1 ∘ g2)
+        (dimap f1 g1 \u2218 dimap f2 g2) == dimap (f2 \u2218 f1) (g1 \u2218 g2)
   ; Proper_dimap :: forall U V A B,
       Proper (pointwise_relation U eq ==> pointwise_relation A eq ==> equiv ==> equiv)
              (dimap (U := U) (V := V) (A := A) (B := B))
