@@ -1,4 +1,4 @@
-From Coq Require Import Arith List Lia.
+From Coq Require Import Morphisms Arith List Lia FunctionalExtensionality.
 From Profmonad Require Import Utils Profmonad.
 Import ListNotations.
 Set Implicit Arguments.
@@ -15,7 +15,7 @@ Definition mkAlignedGG {m v} (fwd : m v) (bwd : v -> bool) : GG m v v :=
   (fwd, fun x => if bwd x then Some x else None).
 
 Class MonadPlus (m : Type -> Type) : Type :=
-  { Monad_MonadPlus : Monad m
+  { Monad_MonadPlus :: Monad m
   ; mzero : forall {a}, m a
   ; mplus : forall {a}, m a -> m a -> m a
   }.
@@ -379,7 +379,7 @@ Definition GGR m := Product (Fwd m) (Bwd (OptionT (State bool))).
 #[global] Instance MonadPlus_OptionT {m} `{Monad m} : MonadPlus (OptionT m) :=
   { mzero := fun _ => ret None
   ; mplus := fun _ l r => bind (M := m) l (fun x =>
-      match x with None => r | Some x => ret x end)
+      match x with None => r | Some x => ret (M := OptionT m) x end)
   }.
 
 #[global] Instance RMonadPlus_Fwd {C} {m} `{RMonadPlus C m} {a} : RMonadPlus C (Fwd m a) :=
@@ -668,9 +668,14 @@ Proof.
   - intros ? []; reflexivity.
   - reflexivity.
   - intros ? ? ? [] ? ?; reflexivity.
+  - unfold Proper, respectful, pointwise_relation.
+    intros ? ? ? _ <- f f' Hf.
+    red. cbn.
+    f_equal.
+    apply functional_extensionality; auto.
 Qed.
 
-#[global] Instance MonadFailLaws_option : MonadFailLaws (M := option) _.
+#[global] Instance MonadFailLaws_option : MonadFailLaws option.
 Proof.
   constructor.
   - typeclasses eauto.
@@ -690,7 +695,6 @@ Proof. typeclasses eauto. Qed.
 #[global] Instance Compositional_complete : Compositional (P := GG list) (@complete).
 Proof.
   constructor.
-  - typeclasses eauto.
   - intros. red. intros *; cbn. injection 1. left; auto.
   - unfold complete; cbn; intros.
     destruct (option_bind_inv_Some _ _ _ H1) as [a' H'].
@@ -725,8 +729,10 @@ Proof.
     unfold check in H3, H4.
     rewrite option_map_id.
     assert (Hf : f b = Some a).
-    { specialize (H a). injection H; intros H5 _. apply (f_equal (fun f => f b)) in H5.
-      rewrite H4 in H5; cbn in H5. injection H5; auto. }
+    { specialize (H a).
+      destruct H as [HH1 HH2].
+      specialize (HH2 b); cbn in HH2.
+      rewrite H4 in HH2. injection HH2. auto. }
     rewrite Hf; cbn. rewrite H3; cbn. auto.
 Qed.
 
@@ -769,7 +775,7 @@ Proof.
       { intros. rewrite 2 bind_bind. reflexivity. }
       { apply IH. }
       intros. apply bind_idiomcomp.
-      { intros; cbn; reflexivity. }
+      { intros. rewrite 2 ret_bind. reflexivity. }
       { apply sound_safePlacing. }
       intros. apply ret_idiomcomp.
 Qed.

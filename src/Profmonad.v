@@ -429,7 +429,7 @@ Instance PartialProfunctorLaws_Fwd (M : Type -> Type) `{MonadLaws M} : PartialPr
 Proof.
   constructor.
   - constructor.
-    + Set Printing All. intros U A x. unfold dimap. unfold asProfunctor. Set Printing All. cbn. unfold Profunctor_Fwd.
+    + intros U A x. unfold dimap. unfold asProfunctor. cbn. unfold Profunctor_Fwd.
       apply map_id.
     + intros. cbv [ dimap asProfunctor PartialProfunctor_Fwd Profunctor_Fwd ].
       rewrite map_map.
@@ -963,6 +963,7 @@ Proof.
     f_equal. apply functional_extensionality. intro ys.
     rewrite morph_ret; auto.
 Qed.
+*)
 
 Instance Monad_list : Monad list :=
   {| ret := fun A x => x :: nil
@@ -976,8 +977,10 @@ Proof.
   - apply app_nil_r.
   - induction m; cbn; f_equal; auto.
     rewrite flat_map_app; f_equal; auto.
+  - unfold Proper, respectful, pointwise_relation.
+    intros ? _ <- f f' Hf.
+    f_equal. apply functional_extensionality; auto.
 Qed.
-*)
 
 Class Idiomcompositional
       {P : Type -> Type -> Type}
