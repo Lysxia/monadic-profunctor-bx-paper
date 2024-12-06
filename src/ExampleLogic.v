@@ -491,8 +491,8 @@ Definition Actor_leb (x y : Actor) : bool :=
   end.
 
 #[global]
-Instance MonadPartial_OptionT {m} `{Monad m} : MonadPartial (OptionT m) :=
-  {| empty := fun _ => ret None |}.
+Instance MonadFail_OptionT {m} `{Monad m} : MonadFail (OptionT m) :=
+  {| fail s := fun _ => ret None |}.
 
 Fixpoint safeSide (n : nat) : GGR set (set Actor) (set Actor) :=
   if 4 <? n then reject (C := Ord) else
@@ -670,7 +670,7 @@ Proof.
   - intros ? ? ? [] ? ?; reflexivity.
 Qed.
 
-#[global] Instance MonadPartialLaws_option : MonadPartialLaws (M := option) _.
+#[global] Instance MonadFailLaws_option : MonadFailLaws (M := option) _.
 Proof.
   constructor.
   - typeclasses eauto.

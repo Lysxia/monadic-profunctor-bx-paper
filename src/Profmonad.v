@@ -9,11 +9,14 @@
   - [R]: a property on (pro)monadic values, possibly indexed by [Q]
  *)
 
+From Coq Require Import Unicode.Utf8.
+
 Generalizable Variables M P.
 Implicit Type M : Type -> Type.
 Implicit Type P : Type -> Type -> Type.
 
 (* begin hide *)
+Require Import Unicode.Utf8.
 From Coq Require Import
   FunctionalExtensionality
   List
@@ -625,7 +628,7 @@ Instance MonadFail_Product P1 P2 U
          `{MonadFail (P1 U),
            MonadFail (P2 U)} :
   MonadFail (Product P1 P2 U) :=
-  { fail _ := (fail, fail) }.
+  { fail _ s := (fail s, fail s) }.
 
 Instance MonadFailLaws_Product P1 P2 U
          `{Eq2 P1, Eq2 P2}
@@ -818,7 +821,7 @@ Proof.
 Qed.
 
 Definition mrange {M} `{MonadFail M} {A} (p : A -> bool) (u : M A) : Prop
-  := u = (u >>= fun x => if p x then ret x else fail).
+  := u = (u >>= fun x => if p x then ret x else fail tt).
 
 (*
 Class Compositional' (P : Type -> Type -> Type) (R : forall A B, P A B -> Prop)
