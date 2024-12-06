@@ -37,7 +37,7 @@ Definition t : Type := nat.
   More complex biparsers are defined using promonadic operations. *)
 Class Biparser (P : Type -> Type -> Type) :=
   { Biparser_Profmonad :: Profmonad P;
-    Biparser_Partial :: forall U, MonadPartial (P U);
+    Biparser_Partial :: forall U, MonadFail (P U);
     biparse_token : P t t;
     biparse_many : forall U A, P (option U) (option A) -> P (list U) (list A)
   }.
@@ -71,8 +71,8 @@ Definition biparse_digit `{Biparser P} : P (option nat) (option nat) :=
   | right _ =>
     match Nat.eq_dec x 10 with
     | left Heq => ret None
-    | right _ => empty
-    end 
+    | right _ => fail tt
+    end
   end.
 
 Definition show_nat (n : nat) : list nat.
@@ -94,7 +94,7 @@ Admitted.
 Definition biparse_nat `{Biparser P} : P nat nat :=
   ds <-( show_nat ) biparse_many biparse_digit ;;
   match read_nat ds with
-  | None => empty
+  | None => fail ff
   | Some n => ret n
   end.
 
@@ -206,11 +206,11 @@ Qed.
 *)
 
 #[global]
-Instance MonadPartial_parser : MonadPartial parser :=
-  { empty := fun _ _ => ret None }.
+Instance MonadFail_parser : MonadFail parser :=
+  { fail s := fun _ _ => ret None }.
 
 #[global]
-Instance MonadPartialLaws_parser : MonadPartialLaws parser.
+Instance MonadFailLaws_parser : MonadFailLaws parser.
 Proof.
   constructor; try typeclasses eauto; cbn; auto.
 Admitted.
@@ -276,11 +276,11 @@ Proof.
 Qed.
 
 #[global]
-Instance MonadPartial_printer : MonadPartial printer :=
-  { empty A := None }.
+Instance MonadFail_printer : MonadFail printer :=
+  { fail A s := None }.
 
 #[global]
-Instance MonadPartialLaws_printer : MonadPartialLaws printer.
+Instance MonadFailLaws_printer : MonadFailLaws printer.
 Proof.
   constructor; try typeclasses eauto; cbn; auto.
 Qed.
@@ -292,7 +292,7 @@ Definition printer2 := Bwd printer.
 Definition print_many {U A} (p : printer2 (option U) (option A)) : printer2 (list U) (list A) :=
   fix print_many_ xs :=
     match xs with
-    | nil => 
+    | nil =>
       match p None with
       | Some (s, None) => Some (s, nil)
       | _ => None
@@ -321,7 +321,7 @@ Definition pure_many {U A} (p : pfunction (option U) (option A)) : pfunction (li
 Instance Biparser_pure : Biparser pfunction :=
   {|
     biparse_token := (fun n => Some n) : pfunction nat nat;
-    biparse_many := fun _ _ => pure_many 
+    biparse_many := fun _ _ => pure_many
   |}.
 
 (* Extract the pure component of the printer *)
@@ -556,7 +556,7 @@ Proof.
 Admitted.
 
 Lemma fst_bind {U A B} (p : biparser U A) (k : A -> biparser U B) s
-  : fst (bind p k) s = bind (fst p s) (fun a => 
+  : fst (bind p k) s = bind (fst p s) (fun a =>
       match a with
       | None => ret None
       | Some (x, s) => fst (k x) s
@@ -697,8 +697,8 @@ Instance Compositional_weak_backward :
   comap_comp := weak_backward_comap;
 }.
 
-Lemma weak_backward_empty U A :
-  weak_backward (@empty (biparser U) _ _ A).
+Lemma weak_backward_fail U A :
+  weak_backward (@fail (biparser U) _ _ A).
 Proof.
   discriminate.
 Qed.
@@ -738,8 +738,8 @@ Instance Quasicompositional_weak_forward :
   comap_comp' := weak_forward_comap;
 }.
 
-Lemma weak_forward_empty U A :
-  weak_forward (@empty (biparser U) _ _ A).
+Lemma weak_forward_fail U A :
+  weak_forward (@fail (biparser U) _ _ A).
 Proof.
   discriminate.
 Qed.
@@ -778,7 +778,7 @@ Proof.
     - apply weak_forward_ret.
     - destruct Nat.eq_dec.
       + apply weak_forward_ret.
-      + apply weak_forward_empty. }
+      + apply weak_forward_fail. }
 Qed.
 
 Lemma weak_backward_digit : weak_backward biparse_digit.
@@ -791,7 +791,7 @@ Proof.
     + apply weak_backward_ret.
     + destruct (Nat.eq_dec a _).
       * apply weak_backward_ret.
-      * apply weak_backward_empty.
+      * apply weak_backward_fail.
 Qed.
 
 Lemma weak_backward_replicate {A} {n} {p : biparser A A}
@@ -824,7 +824,7 @@ Proof.
   { apply weak_forward_many. apply weak_forward_digit. }
   { intros. destruct read_nat eqn:Eread.
     + apply weak_forward_ret.
-    + apply weak_forward_empty. }
+    + apply weak_forward_fail. }
 Qed.
 
 Lemma fmap_fmap_ {M} `{MonadLaws M} A B C (u : M A) (f : A -> B) (g : B -> C)
