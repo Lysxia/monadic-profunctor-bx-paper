@@ -461,6 +461,13 @@ Proof.
     + intros A. unfold Proper, respectful; intros. eapply Proper_comap; reflexivity + auto.
 Qed.
 
+Lemma unfold_comap_Fwd (M : Type -> Type) `{MonadLaws M} {U V A : Type} (f : U -> option V) (u : Fwd M V A)
+  : comap (P := Fwd M) f u == u.
+Proof.
+  cbn. unfold Profunctor_Fwd.
+  apply map_id.
+Qed.
+
 (** ** [Bwd] promonad ***)
 
 (** *** Definition *)

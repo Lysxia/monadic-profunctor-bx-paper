@@ -155,6 +155,14 @@ Definition ret_inv {A} (x : A) y
 Proof.
 Admitted.
 
+Definition iter {A B} (f : A -> m (A + B)) (x : A) : m B :=
+  (cofix iter_ (u : m (A + B)) :=
+  Wait match step u with
+    | inl u => inl (iter_ u)
+    | inr (inl x) => inl (iter_ (f x))
+    | inr (inr y) => inr y
+    end) (f x).
+
 End Delay.
 
 Arguments Delay.Monad_delay : simpl never.
@@ -176,34 +184,28 @@ Instance Monad_parser : Monad parser :=
   }.
 
 #[global]
-Instance Setoid_parser : Eq1 parser.
-Admitted.
+Instance Setoid_parser : Eq1 parser := fun A =>
+  {| equiv := pointwise_relation stream equiv |}.
 
 #[global]
 Instance MonadLaws_parser : MonadLaws parser.
 Proof.
-Admitted. (*
   constructor.
-
-  - intros.
-    apply functional_extensionality.
-    intro s.
-    simpl.
-    destruct (m s) as [ [ ] | ]; auto.
-
-  - intros.
-    apply functional_extensionality.
-    intro s.
-    simpl.
-    auto.
-
-  - intros.
-    apply functional_extensionality.
-    intro s.
-    simpl.
-    destruct (m s) as [ [ ] | ]; simpl; auto.
+  - cbn. red. intros. etransitivity; [ | eapply bind_ret ].
+    apply Proper_bind; [ reflexivity | ].
+    intros [ [] | ]; reflexivity.
+  - cbn. red. intros. rewrite ret_bind. reflexivity.
+  - cbn. red. intros. rewrite bind_bind. apply Proper_bind; [ reflexivity | ].
+    red. intros [ [] | ].
+    + apply Proper_bind; [ reflexivity | ].
+      red. intros [ [] |]; reflexivity.
+    + rewrite ret_bind; reflexivity.
+  - unfold Proper, respectful, pointwise_relation.
+    intros.
+    cbn. intros s. apply Proper_bind.
+    + auto.
+    + intros [ []| ]; [ apply H0 | reflexivity ].
 Qed.
-*)
 
 #[global]
 Instance MonadFail_parser : MonadFail parser :=
@@ -213,7 +215,8 @@ Instance MonadFail_parser : MonadFail parser :=
 Instance MonadFailLaws_parser : MonadFailLaws parser.
 Proof.
   constructor; try typeclasses eauto; cbn; auto.
-Admitted.
+  red. cbn. intros. rewrite ret_bind. reflexivity.
+Qed.
 
 (** **** Parser promonad *)
 
@@ -221,7 +224,25 @@ Definition parser2 := Fwd parser.
 
 Definition Profmonad_parser2 := Profmonad_Fwd parser.
 
-Definition parse_many {A} (u : parser (option A)) : parser (list A).
+Definition parse_many {A} (u : parser (option A)) : parser (list A) :=
+  fun s =>
+  Delay.iter (fun '(acc, s) =>
+    bind (M := Delay.m) (u s) (fun x =>
+    match x return delay ((list A * stream) + option (list A * stream)) with
+    | None => ret (M := Delay.m) (inr None)
+    | Some (None, s) => ret (M := Delay.m) (inr (Some (List.rev acc, s)))
+    | Some (Some a, s) => ret (M := Delay.m) (inl (a :: acc, s))
+    end)) ([], s).
+
+Lemma unfold_parse_many {A} (u : parser (option A))
+  : parse_many u == (
+    x <- u ;;
+    match x with
+    | None => ret []
+    | Some a => xs <- parse_many u ;;
+                ret (a :: xs)
+    end).
+Proof.
 Admitted.
 
 #[global]
@@ -437,26 +458,24 @@ Theorem backward_aligned {A} (p : biparser A A) :
   weak_backward p ->
   backward p.
 Proof.
-Admitted. (*
   intros ALIGNED WBWD a s s' [a' Ea].
   destruct (ALIGNED a).
   rewrite Ea in H.
   injection H; intros [] [].
   apply (WBWD _ _ _ _ Ea).
-Qed. *)
+Qed.
 
 Theorem forward_aligned {A} (p : biparser A A) :
   aligned p ->
   weak_forward p ->
   forward p.
 Proof.
-Admitted. (*
   intros ALIGNED WFWD a s01 s1 s0 E01 [a' E0].
   destruct (ALIGNED a).
   rewrite E0 in H.
   injection H. intros; subst.
   eapply WFWD; eauto.
-Qed. *)
+Qed.
 
 Definition onlyNil {U} (xs : list U) : option (list U) :=
   match xs with
@@ -475,14 +494,21 @@ Lemma unfold_biparse_many {U A} (p : biparser (option U) (option A))
 Proof.
   constructor.
   - change (fst (biparse_many p)) with (parse_many (fst p)).
-    admit.
+    rewrite unfold_parse_many.
+    apply Proper_bind.
+    + apply (symmetry (unfold_comap_Fwd parser (U := list U) (V := U) head (fst p))).
+    + intros []; [ | ].
+      apply Proper_bind.
+      { symmetry; apply (unfold_comap_Fwd parser tail). }
+      { intros ?. reflexivity. }
+      symmetry; apply (unfold_comap_Fwd parser onlyNil).
   - intros u; induction u; cbn.
     + destruct (snd p None) as [[s [x |]] |] eqn:E2; cbn; try reflexivity.
       rewrite 2 app_nil_r. reflexivity.
     + destruct (snd p (Some _)) as [[s [x |]] |] eqn:E2; cbn; try reflexivity.
       { destruct print_many as [[]|] eqn:E2'; cbn; [ | reflexivity ].
         rewrite 3 app_nil_r. reflexivity. }
-Admitted.
+Qed.
 
 Lemma weak_backward_on_bind {U A B} (p : biparser U A) (k : A -> biparser U B) u
   : weak_backward_on p u -> (forall a, weak_backward_on (k a) u) -> weak_backward_on (bind p k) u.
@@ -502,13 +528,17 @@ Qed.
 Instance Proper_fst {U A} : Proper (equiv ==> eq ==> equiv) (@fst (parser2 U A) (printer2 U A)).
 Proof.
   unfold Proper, respectful; intros * H.
-Admitted.
+  intros ? _ <-.
+  apply H.
+Qed.
 
 #[global]
 Instance Proper_snd {U A} : Proper (equiv ==> eq ==> equiv) (@snd (parser2 U A) (printer2 U A)).
 Proof.
   unfold Proper, respectful; intros * H.
-Admitted.
+  intros ? _ <-.
+  apply H.
+Qed.
 
 Definition iff_forall {A : Type} {P Q : A -> Prop} : (forall a, P a <-> Q a) -> (forall a, P a) <-> (forall a, Q a).
 Proof. firstorder. Qed.
@@ -539,6 +569,26 @@ Qed.
 
 (** ** Compositionality of weak roundtrip properties *)
 
+Lemma weak_backward_on_comap {U V A} (f : U -> option V) (p : biparser V A) (u : U)
+  : (forall v, f u = Some v -> weak_backward_on p v) -> weak_backward_on (comap f p) u.
+Proof.
+  unfold weak_backward_on.
+  intros H a s s' Ha.
+  transitivity (fst p (s ++ s')).
+  { assert (W : fst (comap f p) == fst p).
+    { change (fst (comap f p)) with (comap f (fst p)).
+      apply (unfold_comap_Fwd _); auto. }
+    apply W.
+  }
+  cbn in Ha.
+  destruct (f u) as [v | ].
+  - apply (H v); auto.
+    rewrite <- Ha.
+    rewrite <- bind_ret at 1.
+    reflexivity.
+  - discriminate.
+Qed.
+
 Lemma weak_backward_many U A (p : biparser (option U) (option A))
   (WB : weak_backward p) : weak_backward (biparse_many p).
 Proof.
@@ -546,9 +596,10 @@ Proof.
   intros u; induction u;
     rewrite unfold_biparse_many.
   - apply weak_backward_on_bind.
-    + admit.
+    + apply weak_backward_on_comap. intros; apply WB.
     + intros [a |].
-      * admit.
+      * apply weak_backward_on_bind.
+        { }
       * admit.
   - apply weak_backward_on_bind.
     * admit.
