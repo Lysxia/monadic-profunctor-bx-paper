@@ -589,22 +589,77 @@ Proof.
   - discriminate.
 Qed.
 
+Lemma list_length_strong_ind {A} (P : list A -> Prop)
+  : (forall x, (forall y, length y < length x -> P y) -> P x) ->
+    forall x, P x.
+Proof.
+  intros IH.
+  assert (forall n x, length x = n -> P x).
+  { induction n using lt_wf_ind.
+    intros ? <-.
+    apply IH. intros; eapply H; eauto.
+  }
+  intros x.
+  apply (H _ _ eq_refl).
+Qed.
+
+(*
+Lemma empty_weak_backward U A (p : biparser U A)
+  : weak_backward p -> forall u a, snd p u = Some ([], a) ->
+
+*)
+Definition run_parser {A} (p : parser A) (s : stream) : delay (option (A * stream)) :=
+  p s.
+
+#[global]
+Instance Proper_run_parser {A} : Proper (equiv ==> eq ==> equiv) (@run_parser A).
+Proof.
+  unfold Proper, respectful, run_parser.
+  intros ? ? Hp ? _ <-. apply Hp.
+Qed.
+
+Lemma run_parser_bind {A B} (p : parser A) (k : A -> parser B)
+    (s s' : stream) (a : A)
+    (H : run_parser p s == ret (Some (a, s')))
+  : run_parser (bind p k) s == run_parser (k a) s'.
+Proof.
+  cbn.
+  unfold run_parser in H.
+  rewrite H.
+  rewrite ret_bind.
+  reflexivity.
+Qed.
+
 Lemma weak_backward_many U A (p : biparser (option U) (option A))
   (WB : weak_backward p) : weak_backward (biparse_many p).
 Proof.
   unfold weak_backward.
-  intros u; induction u;
-    rewrite unfold_biparse_many.
-  - apply weak_backward_on_bind.
-    + apply weak_backward_on_comap. intros; apply WB.
-    + intros [a |].
-      * apply weak_backward_on_bind.
-        { }
-      * admit.
-  - apply weak_backward_on_bind.
-    * admit.
-    * admit.
-Admitted.
+  intros us; induction us as [ | u us IH ].
+  - unfold weak_backward_on.
+    intros a s s'. cbn.
+    unfold weak_backward, weak_backward_on in WB.
+    destruct (snd p None) as [ [s0 [ | ]] | ] eqn:EpNone; [ discriminate | | discriminate ].
+    injection 1. intros <- <-.
+    specialize (WB _ _ _ s' EpNone).
+    change (run_parser (parse_many (fst p)) (s0 ++ s') == ret (Some ([], s'))).
+    rewrite unfold_parse_many.
+    rewrite (run_parser_bind _ _ _ _ _ WB).
+    reflexivity.
+  - unfold weak_backward_on.
+    intros a s s'. cbn.
+    destruct (snd p (Some u)) as [ [ s0 [ y | ] ] | ] eqn:EpSome; [ | discriminate .. ].
+    unfold weak_backward_on in IH; cbn in IH.
+    destruct print_many as [ [s1 a'] | ] eqn:Eprint_many; [ cbn | discriminate ].
+    injection 1. intros <- <-.
+    rewrite <- app_assoc.
+    change (run_parser (parse_many (fst p)) (s0 ++ s1 ++ s') == ret (Some (y :: a', s'))).
+    rewrite unfold_parse_many.
+    specialize (WB _ _ _ (s1 ++ s') EpSome).
+    rewrite (run_parser_bind _ _ _ _ _ WB).
+    specialize (IH _ _ s' eq_refl).
+    rewrite (run_parser_bind _ _ _ _ _ IH).
+    reflexivity.
+Qed.
 
 Lemma fst_bind {U A B} (p : biparser U A) (k : A -> biparser U B) s
   : fst (bind p k) s = bind (fst p s) (fun a =>
@@ -620,11 +675,22 @@ Proof. reflexivity. Qed.
 
 Lemma fst_comap {U V A} (f : U -> option V) (p : biparser V A) s
   : fst (comap f p) s == fst p s.
-Proof. Admitted.
+Proof.
+  cbn.
+  etransitivity; [ | apply bind_ret ].
+  apply Proper_bind; [ reflexivity | ].
+  intros [ [] | ]; reflexivity.
+Qed.
 
 Lemma snd_comap {U V A} (f : U -> option V) (p : biparser V A) u
   : snd (comap f p) u == bind (f u) (snd p).
-Proof. Admitted.
+Proof.
+  cbn.
+  destruct (f u); [ cbn | reflexivity ].
+  destruct snd as [ [] | ]; [ cbn | reflexivity ].
+  rewrite app_nil_r.
+  reflexivity.
+Qed.
 
 Lemma weak_forward_on_bind {U A B} (p : biparser U A) (k : A -> biparser U B) (f : B -> option A)
     (Hf : forall a, (x <- k a;; ret (f x)) == (x <- k a;; ret (Some a)))
@@ -921,9 +987,24 @@ Proof.
   { apply replicate_length_. }
 Qed.
 
+Lemma weak_backward_nat : weak_backward biparse_nat.
+Proof.
+  unfold biparse_nat.
+  apply bind_comp.
+  - apply comap_comp.
+    apply weak_backward_many.
+    apply weak_backward_digit.
+  - intros a. destruct read_nat.
+    + apply ret_comp.
+    + apply weak_backward_fail.
+Qed.
+
 Theorem weak_backward_string : weak_backward biparse_string.
 Proof.
   unfold biparse_string.
   apply bind_comp.
   - apply comap_comp.
-Admitted.
+    apply weak_backward_nat.
+  - intros n. apply weak_backward_replicate.
+    apply weak_backward_token.
+Qed.
