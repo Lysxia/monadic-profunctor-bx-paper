@@ -138,11 +138,130 @@ Definition flip_bind {A B} (k : A -> m B) : m A -> m B := cofix bind_ u :=
   ;  bind := fun _ _ u k => flip_bind k u
   |}.
 
+Inductive returns {A} (x : A) (u : m A) : Prop :=
+| returns_now : step u = inr x -> returns x u
+| returns_later {u'} : step u = inl u' -> returns x u' -> returns x u
+.
+
 #[global] Instance Setoid_delay {A} : Setoid (m A).
 Proof.
+  refine {| equiv := fun u v => forall x, returns x u <-> returns x v |}.
+  constructor.
+  - red. reflexivity.
+  - red. symmetry. auto.
+  - red. etransitivity; eauto.
+Defined.
+
+Lemma returns_bind {A B} (u : m A) (k : A -> m B) x y
+  : returns x u -> returns y (k x) -> returns y (bind u k).
+Proof.
+  induction 1.
+  - intros Hk. destruct Hk.
+    + constructor 1; cbn. rewrite H. auto.
+    + econstructor 2; cbn; [rewrite H; eauto | auto].
+  - intros Hk. econstructor 2; cbn.
+    + rewrite H; eauto.
+    + auto.
+Qed.
+
+Lemma returns_bind_inv {A B} (u : m A) (k : A -> m B) y
+  : returns y (bind u k) -> exists x, returns x u /\ returns y (k x).
+Proof.
+  remember (bind u k) as b eqn:Eb.
+  intros H; revert u Eb.
+  induction H; cbn.
+  - intros b' ->. cbn in H. destruct (step b') eqn:Eb'; [ discriminate | ].
+    exists a; split.
+    + constructor 1; auto.
+    + constructor 1; auto.
+  - intros b' ->. cbn in H. destruct (step b') eqn:Eb'.
+    + injection H; clear H; intros <-.
+      destruct (IHreturns _ eq_refl) as [ a [] ].
+      exists a; split.
+      * econstructor 2; eauto.
+      * auto.
+    +
 Admitted.
 
 #[global] Instance MonadLaws_delay : MonadLaws m.
+Proof.
+  constructor.
+  - intros A u. cbn. split.
+    + remember (flip_bind _ _) as u' eqn:Eu'.
+      intros H.
+      revert u Eu'.
+      induction H.
+      * constructor 1.
+        rewrite Eu' in H.
+        cbn in H.
+        destruct step; [ discriminate | ].
+        auto.
+      * intros u2 ->.
+        cbn in H.
+        destruct (step u2) eqn:Eu2; [ | discriminate ].
+        injection H. clear H. intros <-.
+        constructor 2 with (u' := m0); auto.
+    + induction 1.
+      * constructor 1; cbn. rewrite H; cbn. reflexivity.
+      * constructor 2 with (u' := flip_bind ret u'); [ cbn | auto ].
+        rewrite H. reflexivity.
+  - intros A B u k x. split.
+    + intros []; [ constructor 1 | econstructor 2 ]; eauto.
+    + intros []; [ constructor 1 | econstructor 2 ]; eauto.
+  - intros A B C u k h x. split.
+    + remember (bind _ _) as u' eqn:Eu'.
+      intros H; revert u Eu'.
+      induction H.
+      * constructor 1.
+        rewrite Eu' in H. cbn in H. cbn.
+        destruct step; [ discriminate | ].
+        destruct step; [ discriminate | ].
+        auto.
+      * intros u2 ->.
+        cbn in H.
+        destruct step as [ u2' | ] eqn:Eu2'.
+        { injection H. clear H. intros <-.
+          constructor 2 with (u' := (x <- u2';; y <- k x;; h y)).
+          { cbn; rewrite Eu2'. reflexivity. }
+          apply IHreturns. auto. }
+        eapply returns_bind; [ constructor 1; eauto | ].
+        destruct (step (k a)) eqn:Ek.
+        { injection H; clear H. intros <-.
+          constructor 2 with (u' := bind m0 h).
+          { cbn. rewrite Ek. reflexivity. }
+          auto. }
+        eapply returns_bind; [ constructor 1; eauto | ].
+        econstructor 2 with u'; auto.
+    + remember (bind _ _) as u' eqn:Eu'.
+      intros H; revert u Eu'.
+      induction H.
+      * constructor 1.
+        rewrite Eu' in H. cbn in H. cbn.
+        destruct step; [ discriminate | ].
+        destruct step; [ discriminate | ].
+        auto.
+      * intros u2 ->.
+        cbn in H.
+        destruct step as [ u2' | ] eqn:Eu2'.
+        { injection H. clear H. intros <-.
+          constructor 2 with (u' := (y <- (x <- u2';; k x);; h y)).
+          { cbn; rewrite Eu2'. reflexivity. }
+          apply IHreturns. auto. }
+        destruct (step (k a)) eqn:Ek.
+        { injection H; clear H. intros <-.
+          constructor 2 with (u' := bind m0 h).
+          { cbn. rewrite Eu2'. rewrite Ek. reflexivity. }
+          auto. }
+        eapply returns_bind.
+        { eapply returns_bind; [ constructor 1; eauto | constructor 1; eauto ]. }
+        constructor 2 with u'; eauto.
+  - unfold Proper, pointwise_relation, respectful; cbn.
+    intros A B.
+    enough (forall x y : m A, (forall x0 : A, returns x0 x <-> returns x0 y) ->
+      forall x0 y0 : A -> m B, (forall (a : A) (x1 : B), returns x1 (x0 a) <-> returns x1 (y0 a)) ->
+      forall x1 : B, returns x1 (flip_bind x0 x) -> returns x1 (flip_bind y0 y)).
+    { split; eauto.
+      apply H; symmetry; auto. }
 Admitted.
 
 Definition bind_inv {A B} (u : m A) (k : A -> m B) b
@@ -603,11 +722,6 @@ Proof.
   apply (H _ _ eq_refl).
 Qed.
 
-(*
-Lemma empty_weak_backward U A (p : biparser U A)
-  : weak_backward p -> forall u a, snd p u = Some ([], a) ->
-
-*)
 Definition run_parser {A} (p : parser A) (s : stream) : delay (option (A * stream)) :=
   p s.
 
