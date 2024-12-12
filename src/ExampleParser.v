@@ -143,14 +143,19 @@ Inductive returns {A} (x : A) (u : m A) : Prop :=
 | returns_later {u'} : step u = inl u' -> returns x u' -> returns x u
 .
 
-#[global] Instance Setoid_delay {A} : Setoid (m A).
-Proof.
-  refine {| equiv := fun u v => forall x, returns x u <-> returns x v |}.
+Record equiv_delay {A} (u v : m A) : Prop :=
+  { apply_equiv_delay : forall x, returns x u <-> returns x v }.
+
+#[global]
+Instance Equivalence_equiv_delay {A} : Equivalence (equiv_delay (A := A)).
   constructor.
-  - red. reflexivity.
-  - red. symmetry. auto.
-  - red. etransitivity; eauto.
-Defined.
+  - constructor; reflexivity.
+  - intros ? ? []; constructor; symmetry; auto.
+  - intros ? ? ? [] []; constructor; etransitivity; eauto.
+Qed.
+
+#[global] Instance Setoid_delay {A} : Setoid (m A) :=
+  {| equiv := equiv_delay |}.
 
 Lemma returns_bind {A B} (u : m A) (k : A -> m B) x y
   : returns x u -> returns y (k x) -> returns y (bind u k).
@@ -174,117 +179,252 @@ Proof.
     exists a; split.
     + constructor 1; auto.
     + constructor 1; auto.
-  - intros b' ->. cbn in H. destruct (step b') eqn:Eb'.
+  - intros b' ->. cbn in H. destruct (step b') as [ | a ] eqn:Eb'.
     + injection H; clear H; intros <-.
       destruct (IHreturns _ eq_refl) as [ a [] ].
       exists a; split.
       * econstructor 2; eauto.
       * auto.
-    +
-Admitted.
+    + exists a; split.
+      * constructor 1; auto.
+      * econstructor 2; eauto.
+Qed.
 
 #[global] Instance MonadLaws_delay : MonadLaws m.
 Proof.
   constructor.
-  - intros A u. cbn. split.
-    + remember (flip_bind _ _) as u' eqn:Eu'.
-      intros H.
-      revert u Eu'.
-      induction H.
-      * constructor 1.
-        rewrite Eu' in H.
-        cbn in H.
-        destruct step; [ discriminate | ].
-        auto.
-      * intros u2 ->.
-        cbn in H.
-        destruct (step u2) eqn:Eu2; [ | discriminate ].
-        injection H. clear H. intros <-.
-        constructor 2 with (u' := m0); auto.
-    + induction 1.
-      * constructor 1; cbn. rewrite H; cbn. reflexivity.
-      * constructor 2 with (u' := flip_bind ret u'); [ cbn | auto ].
-        rewrite H. reflexivity.
-  - intros A B u k x. split.
+  - intros A u. cbn. constructor; split.
+    + intros H; apply returns_bind_inv in H.
+      destruct H as [a [Hu Hret]].
+      destruct Hret; [ | discriminate ].
+      injection H. intros <-; auto.
+    + intros H; eapply returns_bind; eauto.
+      constructor 1; auto.
+  - intros A B u k. constructor; split.
     + intros []; [ constructor 1 | econstructor 2 ]; eauto.
     + intros []; [ constructor 1 | econstructor 2 ]; eauto.
-  - intros A B C u k h x. split.
-    + remember (bind _ _) as u' eqn:Eu'.
-      intros H; revert u Eu'.
-      induction H.
-      * constructor 1.
-        rewrite Eu' in H. cbn in H. cbn.
-        destruct step; [ discriminate | ].
-        destruct step; [ discriminate | ].
-        auto.
-      * intros u2 ->.
-        cbn in H.
-        destruct step as [ u2' | ] eqn:Eu2'.
-        { injection H. clear H. intros <-.
-          constructor 2 with (u' := (x <- u2';; y <- k x;; h y)).
-          { cbn; rewrite Eu2'. reflexivity. }
-          apply IHreturns. auto. }
-        eapply returns_bind; [ constructor 1; eauto | ].
-        destruct (step (k a)) eqn:Ek.
-        { injection H; clear H. intros <-.
-          constructor 2 with (u' := bind m0 h).
-          { cbn. rewrite Ek. reflexivity. }
-          auto. }
-        eapply returns_bind; [ constructor 1; eauto | ].
-        econstructor 2 with u'; auto.
-    + remember (bind _ _) as u' eqn:Eu'.
-      intros H; revert u Eu'.
-      induction H.
-      * constructor 1.
-        rewrite Eu' in H. cbn in H. cbn.
-        destruct step; [ discriminate | ].
-        destruct step; [ discriminate | ].
-        auto.
-      * intros u2 ->.
-        cbn in H.
-        destruct step as [ u2' | ] eqn:Eu2'.
-        { injection H. clear H. intros <-.
-          constructor 2 with (u' := (y <- (x <- u2';; k x);; h y)).
-          { cbn; rewrite Eu2'. reflexivity. }
-          apply IHreturns. auto. }
-        destruct (step (k a)) eqn:Ek.
-        { injection H; clear H. intros <-.
-          constructor 2 with (u' := bind m0 h).
-          { cbn. rewrite Eu2'. rewrite Ek. reflexivity. }
-          auto. }
-        eapply returns_bind.
-        { eapply returns_bind; [ constructor 1; eauto | constructor 1; eauto ]. }
-        constructor 2 with u'; eauto.
+  - intros A B C u k h. constructor; split.
+    + intros H; apply returns_bind_inv in H.
+      destruct H as [b [Huk Hh]].
+      apply returns_bind_inv in Huk.
+      destruct Huk as [a [Hu Hk]].
+      eapply returns_bind; [ eauto | ].
+      eapply returns_bind; eauto.
+    + intros H; apply returns_bind_inv in H.
+      destruct H as [a [Hu Hkh]].
+      apply returns_bind_inv in Hkh.
+      destruct Hkh as [b [Hk Hh]].
+      eapply returns_bind; [ | eauto ].
+      eapply returns_bind; eauto.
   - unfold Proper, pointwise_relation, respectful; cbn.
     intros A B.
-    enough (forall x y : m A, (forall x0 : A, returns x0 x <-> returns x0 y) ->
-      forall x0 y0 : A -> m B, (forall (a : A) (x1 : B), returns x1 (x0 a) <-> returns x1 (y0 a)) ->
+    enough (forall x y : m A, equiv_delay x y ->
+      forall x0 y0 : A -> m B, (forall a : A, equiv_delay (x0 a) (y0 a)) ->
       forall x1 : B, returns x1 (flip_bind x0 x) -> returns x1 (flip_bind y0 y)).
-    { split; eauto.
-      apply H; symmetry; auto. }
-Admitted.
+    { constructor; split; intros.
+      { eapply H; eauto. }
+      { eapply H. { symmetry; eauto. } { symmetry; eauto. } auto. } }
+    intros x y Hxy k h Hkh b Hb.
+    apply returns_bind_inv in Hb.
+    destruct Hb as [ a [ Hx Ha ]].
+    eapply returns_bind.
+    + apply Hxy; eauto.
+    + apply Hkh; eauto.
+Qed.
+
+Lemma returns_injective {A} (u : m A) (x y : A) : returns x u -> returns y u -> x = y.
+Proof.
+  induction 1; intros []; try congruence.
+  assert (u' = u'0) by congruence.
+  subst; auto.
+Qed.
 
 Definition bind_inv {A B} (u : m A) (k : A -> m B) b
   : bind u k == ret b -> exists a, (u == ret a) /\ (k a == ret b).
 Proof.
-Admitted.
+  cbn.
+  intros H.
+  assert (Huk : returns b (bind u k)).
+  { apply H. constructor; auto. }
+  apply returns_bind_inv in Huk.
+  destruct Huk as [ a [ Hu Hk ]].
+  exists a; split.
+  - constructor; split.
+    + intros Ru.
+      rewrite (returns_injective _ _ _ Hu Ru).
+      constructor; auto.
+    + intros Ra. destruct Ra; [ | discriminate ].
+      injection H0; intros <-. auto.
+  - constructor; split.
+    + intros Rk.
+      rewrite (returns_injective _ _ _ Rk Hk).
+      constructor; auto.
+    + intros Rk. destruct Rk; [ | discriminate ].
+      injection H0; intros <-; auto.
+Qed.
 
 Definition ret_inv {A} (x : A) y
   : ret x == ret y -> x = y.
 Proof.
-Admitted.
+  cbn. intros H.
+  assert (R : returns x (ret x)).
+  { constructor. auto. }
+  apply H in R.
+  destruct R; [ | discriminate].
+  injection H0. auto.
+Qed.
+
+Definition bind_iter {A B} (f : A -> m (A + B)) : m (A + B) -> m B :=
+  cofix bind_iter_ u :=
+    Wait match step u with
+      | inl u => inl (bind_iter_ u)
+      | inr (inl x) => inl (bind_iter_ (f x))
+      | inr (inr y) => inr y
+      end.
 
 Definition iter {A B} (f : A -> m (A + B)) (x : A) : m B :=
-  (cofix iter_ (u : m (A + B)) :=
-  Wait match step u with
-    | inl u => inl (iter_ u)
-    | inr (inl x) => inl (iter_ (f x))
-    | inr (inr y) => inr y
-    end) (f x).
+  bind_iter f (f x).
+
+Inductive iter_returns_ {A B} (x : B) (f : A -> m (A + B)) : A + B -> Prop :=
+| iter_returns_stop : iter_returns_ x f (inr x)
+| iter_returns_continue {a y}
+  : returns y (f a) ->
+    iter_returns_ x f y ->
+    iter_returns_ x f (inl a).
+
+Definition iter_returns {A B} (x : B) (f : A -> m (A + B)) (a : A) : Prop :=
+  iter_returns_ x f (inl a).
+
+Lemma returns_bind_iter_inv {A B} (f : A -> m (A + B)) (u : m (A + B)) (x : B)
+  : returns x (bind_iter f u) -> exists a, returns a u /\ iter_returns_ x f a.
+Proof.
+  remember (bind_iter f u) as b eqn:Eb.
+  intros H; revert u Eb.
+  induction H; cbn.
+  - intros b' ->. cbn in H.
+    destruct (step b') as [ | [ | ] ] eqn:Eb'; [ discriminate | discriminate | ].
+    injection H; clear H; intros <-.
+    exists (inr b); split.
+    + constructor 1. auto.
+    + constructor; auto.
+  - intros u2 ->. cbn in H.
+    destruct (step u2) as [ | [ | ] ] eqn:Eu2; [ | | discriminate ].
+    + injection H; clear H; intros <-.
+      specialize (IHreturns _ eq_refl).
+      destruct IHreturns as [ a [ Hu Hf ]].
+      exists a; split.
+      * econstructor 2; eauto.
+      * auto.
+    + injection H; clear H; intros <-.
+      specialize (IHreturns _ eq_refl).
+      destruct IHreturns as [ z [ Hu Hf ]].
+      exists (inl a); split.
+      * constructor; auto.
+      * econstructor; eauto.
+Qed.
+
+Lemma returns_bind_iter_returns {A B} (f : A -> m (A + B)) (x : B) (a : A + B)
+  : iter_returns_ x f a -> match a with
+    | inl a => returns x (bind_iter f (f a))
+    | inr y => x = y
+    end.
+Proof.
+  induction 1; [reflexivity | ].
+  revert H; generalize (f a); intros u H; induction H.
+  - destruct y.
+    + econstructor 2; cbn.
+      * rewrite H. reflexivity.
+      * auto.
+    + constructor; cbn. rewrite H. f_equal; auto.
+  - econstructor 2; cbn.
+    + rewrite H. reflexivity.
+    + auto.
+Qed.
+
+Lemma returns_bind_iter {A B} (f : A -> m (A + B)) (u : m (A + B)) (x : B) (a : A + B)
+  : returns a u -> iter_returns_ x f a -> returns x (bind_iter f u).
+Proof.
+  intros Hu Hf; induction Hu.
+  - destruct a.
+    + econstructor 2; cbn. { rewrite H; reflexivity. }
+      apply returns_bind_iter_returns in Hf. auto.
+    + remember (inr b) eqn:Eb; destruct Hf; [ | discriminate ].
+      injection Eb; clear Eb; intros <-.
+      constructor; cbn. rewrite H. reflexivity.
+  - econstructor 2; cbn; [ rewrite H; reflexivity | auto ].
+Qed.
+
+Lemma returns_iter_inv {A B} (f : A -> m (A + B)) (x : B) (a : A)
+  : returns x (iter f a) -> iter_returns x f a.
+Proof.
+  intros H; apply returns_bind_iter_inv in H.
+  destruct H as [ a' [ Hu Hf ]].
+  econstructor; eauto.
+Qed.
+
+Lemma returns_bind_iter_inv' {A B} (f : A -> m (A + B)) (u : m (A + B)) (y : B)
+  : returns y (bind_iter f u) -> exists x, returns x u /\
+      match x with
+      | inl x' => returns y (bind_iter f (f x'))
+      | inr y' => y = y'
+      end.
+Proof.
+  intros H; apply returns_bind_iter_inv in H.
+  destruct H as [ a [ Hu Hf ]].
+  exists a; split; auto.
+  destruct Hf; auto.
+  eapply returns_bind_iter; eauto.
+Qed.
+
+Lemma returns_bind_iter' {A B} (f : A -> m (A + B)) (u : m (A + B)) (x : A + B) (y : B)
+  : returns x u ->
+    match x with
+    | inl x' => returns y (bind_iter f (f x'))
+    | inr y' => y = y'
+    end -> returns y (bind_iter f u).
+Proof.
+  intros Hu Hf. eapply returns_bind_iter; eauto.
+  destruct x.
+  - eapply returns_bind_iter_inv in Hf.
+    destruct Hf as [ a' [ Hu' Hf' ]].
+    econstructor; eauto.
+  - destruct Hf; constructor.
+Qed.
+
+Lemma unfold_iter {A B} (f : A -> m (A + B)) (x : A)
+  : iter f x == (xy <- f x ;; match xy with
+    | inl x => iter f x
+    | inr y => ret y
+    end).
+Proof.
+  constructor; intros y. split.
+  - intros H; apply returns_bind_iter_inv' in H.
+    destruct H as [ x' [ Hf Hiter ]].
+    eapply returns_bind; [ eauto | ].
+    destruct x'.
+    + apply Hiter.
+    + constructor; cbn; f_equal; auto.
+  - intros H; apply returns_bind_inv in H.
+    destruct H as [ xy [ Hf Hiter ]].
+    eapply returns_bind_iter'.
+    + eauto.
+    + destruct xy; eauto.
+      destruct Hiter; [ | discriminate ].
+      injection H; auto.
+Qed.
+
+#[global]
+Instance Proper_returns {A}
+  : Proper (eq ==> equiv ==> iff) (@returns A).
+Proof.
+  unfold Proper, respectful.
+  intros ? _ <- ? ? E. apply E.
+Qed.
 
 End Delay.
 
 Arguments Delay.Monad_delay : simpl never.
+Arguments Delay.Setoid_delay : simpl never.
 
 Notation delay := Delay.m.
 
@@ -343,15 +483,100 @@ Definition parser2 := Fwd parser.
 
 Definition Profmonad_parser2 := Profmonad_Fwd parser.
 
-Definition parse_many {A} (u : parser (option A)) : parser (list A) :=
-  fun s =>
+Definition parse_many_ {A} (u : parser (option A))
+  : list A * stream -> Delay.m (option (list A * stream)) :=
   Delay.iter (fun '(acc, s) =>
     bind (M := Delay.m) (u s) (fun x =>
-    match x return delay ((list A * stream) + option (list A * stream)) with
-    | None => ret (M := Delay.m) (inr None)
-    | Some (None, s) => ret (M := Delay.m) (inr (Some (List.rev acc, s)))
-    | Some (Some a, s) => ret (M := Delay.m) (inl (a :: acc, s))
-    end)) ([], s).
+    ret match x with
+    | None => inr None
+    | Some (None, s) => inr (Some (List.rev acc, s))
+    | Some (Some a, s) => inl (a :: acc, s)
+    end)).
+
+Definition parse_many {A} (u : parser (option A)) : parser (list A) :=
+  fun s => parse_many_ u ([], s).
+
+Lemma shift_parse_many_ {A} (u : parser (option A)) acc acc' s
+  : parse_many_ u (acc ++ acc', s) ==
+      (o <- parse_many_ u (acc, s) ;;
+       match o with
+       | None => ret None
+       | Some (xs, s') => ret (Some (List.rev acc' ++ xs, s'))
+       end).
+Proof.
+  constructor.
+  intros xs. split.
+  - intros H.
+    unfold parse_many_ in H.
+    apply Delay.returns_iter_inv in H.
+    red in H.
+    remember (inl _) eqn:El in H.
+    revert s acc El.
+    induction H as [ | ? ? H HH IH]; [ discriminate | ].
+    intros ? ?; injection 1; intros ->. clear El.
+    apply Delay.returns_bind_inv in H.
+    destruct H as [ [[ [ | ] ? ] | ] [Hx Hy] ].
+    + destruct Hy; [ | discriminate ].
+      injection H; clear H; intros <-.
+      specialize (IH _ (_ :: _) eq_refl).
+      unfold parse_many_.
+      rewrite Delay.unfold_iter.
+      rewrite 2 bind_bind.
+      apply Delay.returns_bind with (1 := Hx).
+      rewrite ret_bind. fold (parse_many_ u).
+      auto.
+    + destruct Hy; [ | discriminate ].
+      injection H; clear H; intros <-.
+      unfold parse_many_.
+      rewrite Delay.unfold_iter.
+      rewrite 2 bind_bind.
+      apply Delay.returns_bind with (1 := Hx).
+      rewrite 2 ret_bind.
+      inversion HH.
+      constructor.
+      rewrite List.rev_app_distr. auto.
+    + destruct Hy; [ | discriminate ].
+      injection H; clear H; intros <-.
+      unfold parse_many_.
+      rewrite Delay.unfold_iter.
+      rewrite 2 bind_bind.
+      apply Delay.returns_bind with (1 := Hx).
+      rewrite 2 ret_bind.
+      inversion HH. constructor; auto.
+  - intros H.
+    apply Delay.returns_bind_inv in H.
+    destruct H as [ x [Hx Hxs] ].
+    unfold parse_many_ in Hx.
+    apply Delay.returns_iter_inv in Hx. red in Hx.
+    remember (inl (acc, s)) eqn:El.
+    revert acc s El.
+    induction Hx as [ | ? ? H HH IH]; [ discriminate | ].
+    intros ? ? El; injection El; clear El; intros ->.
+    apply Delay.returns_bind_inv in H.
+    destruct H as [ z [Hx Hy]].
+    destruct Hy; [ | discriminate ].
+    injection H; clear H; intros <-.
+    destruct z as [[ [ | ] ? ] | ].
+    + specialize (IH _ _ eq_refl).
+      unfold parse_many_.
+      rewrite Delay.unfold_iter.
+      rewrite bind_bind.
+      apply Delay.returns_bind with (1 := Hx).
+      rewrite ret_bind.
+      auto.
+    + inversion HH. subst x.
+      unfold parse_many_. rewrite Delay.unfold_iter.
+      rewrite bind_bind.
+      apply Delay.returns_bind with (1 := Hx).
+      rewrite ret_bind.
+      rewrite List.rev_app_distr. auto.
+    + inversion HH. subst x.
+      unfold parse_many_. rewrite Delay.unfold_iter.
+      rewrite bind_bind.
+      apply Delay.returns_bind with (1 := Hx).
+      rewrite ret_bind.
+      auto.
+Qed.
 
 Lemma unfold_parse_many {A} (u : parser (option A))
   : parse_many u == (
@@ -362,7 +587,18 @@ Lemma unfold_parse_many {A} (u : parser (option A))
                 ret (a :: xs)
     end).
 Proof.
-Admitted.
+  cbn. intros s.
+  unfold parse_many.
+  unfold parse_many_.
+  rewrite Delay.unfold_iter.
+  rewrite bind_bind.
+  apply Proper_bind; [ reflexivity | ].
+  intros [ [ [ | ] ? ] | ]; rewrite ret_bind.
+  - fold (parse_many_ u).
+    apply shift_parse_many_ with (acc := []) (acc' := [a]).
+  - reflexivity.
+  - reflexivity.
+Qed.
 
 #[global]
 Instance Biparser_parser2 : Biparser parser2 :=
