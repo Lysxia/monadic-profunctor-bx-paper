@@ -75,18 +75,18 @@ Definition biparse_digit `{Biparser P} : P (option nat) (option nat) :=
     end
   end.
 
-Definition show_nat (n : nat) : list nat.
+Definition show_nat (n : nat) : list t.
 Admitted.
 
 (* You can allow leading zeroes at the cost of breaking forwards roundtripping (read_show_nat) *)
-Definition read_nat (xs : list nat) : option nat.
+Definition read_nat (xs : list t) : option nat.
 Admitted.
 
 Lemma show_read_nat (n : nat)
   : read_nat (show_nat n) = Some n.
 Admitted.
 
-Lemma read_show_nat (xs : list nat) (n : nat)
+Lemma read_show_nat (xs : list t) (n : nat)
   : read_nat xs = Some n -> show_nat n = xs.
 Admitted.
 
