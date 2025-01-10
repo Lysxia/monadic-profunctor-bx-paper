@@ -325,20 +325,20 @@ Proof.
   intros H; inversion H; subst; auto. inversion H0.
 Qed.
 
-Definition very_sound {A : Type} (g : bigen A A) : Prop :=
+Definition strongly_sound {A : Type} (g : bigen A A) : Prop :=
   forall x, member x (run_gen g) -> snd g x == Some x.
 
-Lemma very_sound_sound {A} (g : bigen A A) : very_sound g -> sound g.
+Lemma strongly_sound_sound {A} (g : bigen A A) : strongly_sound g -> sound g.
 Proof.
   intros F x H. unfold run_pred. rewrite (F _ H). reflexivity.
 Qed.
 
 #[global]
-Instance Idiomcompositional_very_sound : Idiomcompositional (@very_sound).
+Instance Idiomcompositional_strongly_sound : Idiomcompositional (@strongly_sound).
 Proof.
   constructor.
-  - unfold very_sound. intros * H; apply In_singleton_inv in H; subst; reflexivity.
-  - unfold very_sound; cbn; intros * Hf Hm Hk b Hb.
+  - unfold strongly_sound. intros * H; apply In_singleton_inv in H; subst; reflexivity.
+  - unfold strongly_sound; cbn; intros * Hf Hm Hk b Hb.
     apply in_flat_map in Hb. destruct Hb as (a & Ha1 & Hb).
     apply in_flat_map in Ha1; destruct Ha1 as (a2 & Ha2 & Ha1).
     apply In_singleton_inv in Ha1; subst a2.
@@ -353,17 +353,17 @@ Proof.
     rewrite Hf'; cbn. rewrite Ha2; cbn. auto.
 Qed.
 
-Lemma very_sound_leaf : very_sound bigen_leaf.
+Lemma strongly_sound_leaf : strongly_sound bigen_leaf.
 Proof.
   red; cbn. intros ? [<- | []]. cbn. reflexivity.
 Qed.
 
-Lemma very_sound_bool : very_sound bigen_bool.
+Lemma strongly_sound_bool : strongly_sound bigen_bool.
 Proof.
   red. reflexivity.
 Qed.
 
-Lemma very_sound_range min max : very_sound (bigen_range min max).
+Lemma strongly_sound_range min max : strongly_sound (bigen_range min max).
 Proof.
   red; cbn.
   intros x Hx; apply in_seq in Hx. destruct Hx as (Hmin & Hmax).
@@ -372,12 +372,12 @@ Proof.
   reflexivity.
 Qed.
 
-Theorem very_sound_bst d min max : very_sound (bigen_bst d min max).
+Theorem strongly_sound_bst d min max : strongly_sound (bigen_bst d min max).
 Proof.
   revert min max; induction d; intros; cbn [bigen_bst].
-  - exact @very_sound_leaf.
+  - exact @strongly_sound_leaf.
   - destruct (Nat.ltb_spec max min).
-    + apply @very_sound_leaf.
+    + apply @strongly_sound_leaf.
     + apply bind_idiomcomp.
       { intros [].
         - reflexivity.
@@ -389,10 +389,10 @@ Proof.
           apply Proper_bind; [ reflexivity | intros ? ].
           rewrite 2 ret_bind.
           reflexivity. }
-      { apply @very_sound_bool. }
+      { apply @strongly_sound_bool. }
       { intros [].
         { apply ret_idiomcomp. }
-        { repeat (apply bind_idiomcomp; [ | auto using very_sound_range | intros ]); [ .. | apply ret_idiomcomp ].
+        { repeat (apply bind_idiomcomp; [ | auto using strongly_sound_range | intros ]); [ .. | apply ret_idiomcomp ].
           - intros ?.
             rewrite 2 bind_bind.
             apply Proper_bind; [ reflexivity | intros ? ].
@@ -410,7 +410,7 @@ Qed.
 
 Theorem sound_bst d min max : sound (bigen_bst d min max).
 Proof.
-  apply very_sound_sound, very_sound_bst.
+  apply strongly_sound_sound, strongly_sound_bst.
 Qed.
 
 Print Assumptions complete_bst.

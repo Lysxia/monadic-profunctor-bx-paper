@@ -72,8 +72,6 @@ Definition isValidPos (x : Pos) : bool :=
 Definition safePlacing {m} `{MonadPlus m} (xs : list Pos) : GG m Pos Pos :=
   let noconflicts p := List.forallb (fun q => negb (conflict p q)) xs in
   mkAlignedGG (choose (filter noconflicts validPos)) (fun x => noconflicts x && isValidPos x)%bool.
-(* TODO: update paper
-   The isValidPos condition was added in the checker direction to satisfy completeness. *)
 
 Fixpoint nQueens {m} `{MonadPlus m} (n : nat) : GG m (list Pos) (list Pos) :=
   if (8 <? n) then reject else
@@ -892,3 +890,6 @@ Proof.
   - apply @aligned_nQueens.
   - apply complete_nQueens'.
 Qed.
+
+(* TODO: prove something about riverCrossing example *)
+(* TODO: example involving monad actions (family tree) *)
