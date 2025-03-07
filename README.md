@@ -1,5 +1,7 @@
 # Source for the paper The Monadic Profunctor Paradigm of Bidirectional Programming
 
+This is the 2025 journal extension of our previous paper *Composing bidirectional programs monadically*.
+
 The paper itself is written in Literate Haskell, it lives under `paper/`. The Rocq formalization of our results is under `rocq/`.
 
 ## Rocq formalization
