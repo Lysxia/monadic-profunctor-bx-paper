@@ -781,11 +781,18 @@ Qed.
 Lemma sound_sound : forall A (m : GG list A A), sound m -> forall x, List.In x (generate m) -> toPredicate m x = true.
 Proof. intros * Hsound x Hx; apply Hsound in Hx. unfold toPredicate. rewrite Hx. reflexivity. Qed.
 
-(** TODO: setting n := 8 makes Qed very slow. *)
 Theorem sound_nQueens : forall n x, List.In x (generate (nQueens n)) -> toPredicate (nQueens n) x = true.
 Proof.
   intros n; apply @sound_sound, sound_nQueens'.
 Qed.
+
+(** TODO: setting n := 8 makes Qed very slow. *)
+(*
+Theorem sound_nQueens8 : forall x, List.In x (generate (nQueens 8)) -> toPredicate (nQueens 8) x = true.
+Proof.
+    apply sound_nQueens.
+Qed.
+*)
 
 Definition aligned {m A} (P : A -> Prop) (m : GG m A A) : Prop :=
   forall x, P x -> forall y, check m x = Some y -> x = y.
