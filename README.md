@@ -1,16 +1,12 @@
-Supplementary material for "The Monadic Profunctor Paradigm of Bidirectional Programming".
+# Source for the paper The Monadic Profunctor Paradigm of Bidirectional Programming
 
-Coq proofs of compositionality for some properties of biparsers and lenses.
+The paper itself is written in Literate Haskell, it lives under `paper/`. The Rocq formalization of our results is under `rocq/`.
 
-# Requirements
+## Rocq formalization
 
-- Coq theorem prover (this has been tested with 8.19)
+Rocq proofs of compositionality for some properties of biparsers and lenses.
 
-# Usage
+This is built with Rocq version 8.20 (pre-renaming, `coq.8.20` on opam).
 
-In the top-level directory run
-
+    cd rocq
     make
-
-This will build the dependency tree for the formalisation. This can then be loaded into CoqIde
-by opening the required .v files (or all of them in one go).
